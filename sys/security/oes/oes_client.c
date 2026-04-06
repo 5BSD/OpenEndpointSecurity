@@ -30,7 +30,7 @@
 #include <security/oes/oes.h>
 #include <security/oes/oes_internal.h>
 
-MALLOC_DECLARE(M_ESC);
+MALLOC_DECLARE(M_OES);
 
 /* proctree_lock protects p_pptr, p_pgrp, and related tree fields */
 extern struct sx proctree_lock;
@@ -92,7 +92,7 @@ oes_client_alloc(void)
 {
 	struct oes_client *ec;
 
-	ec = malloc(sizeof(*ec), M_ESC, M_WAITOK | M_ZERO);
+	ec = malloc(sizeof(*ec), M_OES, M_WAITOK | M_ZERO);
 
 	mtx_init(&ec->ec_mtx, "oes_client", NULL, MTX_DEF);
 	ec->ec_owner_pid = -1;
@@ -175,16 +175,16 @@ oes_client_free(struct oes_client *ec)
 	for (int i = 0; i < OES_MUTE_PROC_BUCKETS; i++) {
 		LIST_FOREACH_SAFE(em, &ec->ec_muted[i], em_link, em_tmp) {
 			LIST_REMOVE(em, em_link);
-			free(em, M_ESC);
+			free(em, M_OES);
 		}
 	}
 	LIST_FOREACH_SAFE(epm, &ec->ec_muted_paths, emp_link, epm_tmp) {
 		LIST_REMOVE(epm, emp_link);
-		free(epm, M_ESC);
+		free(epm, M_OES);
 	}
 	LIST_FOREACH_SAFE(epm, &ec->ec_muted_targets, emp_link, epm_tmp) {
 		LIST_REMOVE(epm, emp_link);
-		free(epm, M_ESC);
+		free(epm, M_OES);
 	}
 	{
 		struct oes_mute_uid_entry *emu, *emu_tmp;
@@ -192,11 +192,11 @@ oes_client_free(struct oes_client *ec)
 
 		LIST_FOREACH_SAFE(emu, &ec->ec_muted_uids, emu_link, emu_tmp) {
 			LIST_REMOVE(emu, emu_link);
-			free(emu, M_ESC);
+			free(emu, M_OES);
 		}
 		LIST_FOREACH_SAFE(emg, &ec->ec_muted_gids, emg_link, emg_tmp) {
 			LIST_REMOVE(emg, emg_link);
-			free(emg, M_ESC);
+			free(emg, M_OES);
 		}
 	}
 
@@ -208,7 +208,7 @@ oes_client_free(struct oes_client *ec)
 	knlist_destroy(&ec->ec_selinfo.si_note);
 
 	mtx_destroy(&ec->ec_mtx);
-	free(ec, M_ESC);
+	free(ec, M_OES);
 }
 
 int
@@ -385,7 +385,7 @@ oes_client_apply_default_mutes(struct oes_client *ec)
 	if (oes_default_self_mute && !(ec->ec_flags & EC_FLAG_MUTED_SELF)) {
 		struct oes_mute_entry *em;
 
-		em = malloc(sizeof(*em), M_ESC, M_NOWAIT | M_ZERO);
+		em = malloc(sizeof(*em), M_OES, M_NOWAIT | M_ZERO);
 
 		EC_LOCK(ec);
 		ec->ec_flags |= EC_FLAG_MUTED_SELF;
@@ -824,7 +824,7 @@ oes_client_mute(struct oes_client *ec, oes_proc_token_t *token, uint32_t flags)
 		}
 
 		/* Add entry for self so GET_MUTED_PROCESSES returns it */
-		em = malloc(sizeof(*em), M_ESC, M_NOWAIT | M_ZERO);
+		em = malloc(sizeof(*em), M_OES, M_NOWAIT | M_ZERO);
 		if (em == NULL) {
 			/* Still set flag even if can't add to list */
 			ec->ec_flags |= EC_FLAG_MUTED_SELF;
@@ -880,7 +880,7 @@ oes_client_mute(struct oes_client *ec, oes_proc_token_t *token, uint32_t flags)
 	}
 
 	/* Add to mute list */
-	em = malloc(sizeof(*em), M_ESC, M_NOWAIT | M_ZERO);
+	em = malloc(sizeof(*em), M_OES, M_NOWAIT | M_ZERO);
 	if (em == NULL) {
 		EC_UNLOCK(ec);
 		return (ENOMEM);
@@ -967,7 +967,7 @@ oes_client_mute_path(struct oes_client *ec, const char *path, uint32_t type,
 		}
 	}
 
-	emp = malloc(sizeof(*emp), M_ESC, M_NOWAIT | M_ZERO);
+	emp = malloc(sizeof(*emp), M_OES, M_NOWAIT | M_ZERO);
 	if (emp == NULL) {
 		EC_UNLOCK(ec);
 		return (ENOMEM);
@@ -1018,7 +1018,7 @@ oes_client_unmute_path(struct oes_client *ec, const char *path, uint32_t type,
 		if (emp->emp_type == type && emp->emp_len == len &&
 		    memcmp(emp->emp_path, path, len) == 0) {
 			LIST_REMOVE(emp, emp_link);
-			free(emp, M_ESC);
+			free(emp, M_OES);
 			if (target)
 				ec->ec_muted_target_count--;
 			else
@@ -1049,7 +1049,7 @@ oes_client_unmute(struct oes_client *ec, oes_proc_token_t *token)
 		if (em->em_pid == (pid_t)token->ept_id &&
 		    (em->em_genid == 0 || em->em_genid == token->ept_genid)) {
 			LIST_REMOVE(em, em_link);
-			free(em, M_ESC);
+			free(em, M_OES);
 			ec->ec_muted_proc_count--;
 			error = 0;
 			break;
@@ -1297,7 +1297,7 @@ oes_client_mute_events(struct oes_client *ec, oes_proc_token_t *token,
 			return (ENOSPC);
 		}
 
-		em = malloc(sizeof(*em), M_ESC, M_NOWAIT | M_ZERO);
+		em = malloc(sizeof(*em), M_OES, M_NOWAIT | M_ZERO);
 		if (em == NULL) {
 			EC_UNLOCK(ec);
 			return (ENOMEM);
@@ -1359,7 +1359,7 @@ oes_client_mute_events(struct oes_client *ec, oes_proc_token_t *token,
 		return (ENOSPC);
 	}
 
-	em = malloc(sizeof(*em), M_ESC, M_NOWAIT | M_ZERO);
+	em = malloc(sizeof(*em), M_OES, M_NOWAIT | M_ZERO);
 	if (em == NULL) {
 		EC_UNLOCK(ec);
 		return (ENOMEM);
@@ -1424,7 +1424,7 @@ oes_client_unmute_events(struct oes_client *ec, oes_proc_token_t *token,
 				if (em->em_events[0] == 0 && em->em_events[1] == 0 &&
 				    em->em_events[2] == 0 && em->em_events[3] == 0) {
 					LIST_REMOVE(em, em_link);
-					free(em, M_ESC);
+					free(em, M_OES);
 					ec->ec_muted_proc_count--;
 					ec->ec_flags &= ~EC_FLAG_MUTED_SELF;
 				}
@@ -1470,7 +1470,7 @@ oes_client_unmute_events(struct oes_client *ec, oes_proc_token_t *token,
 			if (em->em_events[0] == 0 && em->em_events[1] == 0 &&
 			    em->em_events[2] == 0 && em->em_events[3] == 0) {
 				LIST_REMOVE(em, em_link);
-				free(em, M_ESC);
+				free(em, M_OES);
 				ec->ec_muted_proc_count--;
 			}
 			EC_UNLOCK(ec);
@@ -1568,7 +1568,7 @@ oes_client_mute_path_events(struct oes_client *ec, const char *path,
 		}
 	}
 
-	emp = malloc(sizeof(*emp), M_ESC, M_NOWAIT | M_ZERO);
+	emp = malloc(sizeof(*emp), M_OES, M_NOWAIT | M_ZERO);
 	if (emp == NULL) {
 		EC_UNLOCK(ec);
 		return (ENOMEM);
@@ -1642,7 +1642,7 @@ oes_client_unmute_path_events(struct oes_client *ec, const char *path,
 			if (emp->emp_events[0] == 0 && emp->emp_events[1] == 0 &&
 			    emp->emp_events[2] == 0 && emp->emp_events[3] == 0) {
 				LIST_REMOVE(emp, emp_link);
-				free(emp, M_ESC);
+				free(emp, M_OES);
 				if (target)
 					ec->ec_muted_target_count--;
 				else
@@ -1748,7 +1748,7 @@ oes_client_unmute_all_processes(struct oes_client *ec)
 	for (i = 0; i < OES_MUTE_PROC_BUCKETS; i++) {
 		LIST_FOREACH_SAFE(em, &ec->ec_muted[i], em_link, em_tmp) {
 			LIST_REMOVE(em, em_link);
-			free(em, M_ESC);
+			free(em, M_OES);
 		}
 	}
 	ec->ec_muted_proc_count = 0;
@@ -1768,7 +1768,7 @@ oes_client_unmute_all_paths(struct oes_client *ec, bool target)
 
 	LIST_FOREACH_SAFE(emp, list, emp_link, emp_tmp) {
 		LIST_REMOVE(emp, emp_link);
-		free(emp, M_ESC);
+		free(emp, M_OES);
 	}
 	if (target)
 		ec->ec_muted_target_count = 0;
@@ -1800,7 +1800,7 @@ oes_client_mute_uid(struct oes_client *ec, uid_t uid)
 	}
 
 	/* Allocate new entry */
-	emu = malloc(sizeof(*emu), M_ESC, M_NOWAIT | M_ZERO);
+	emu = malloc(sizeof(*emu), M_OES, M_NOWAIT | M_ZERO);
 	if (emu == NULL) {
 		EC_UNLOCK(ec);
 		return (ENOMEM);
@@ -1824,7 +1824,7 @@ oes_client_unmute_uid(struct oes_client *ec, uid_t uid)
 	LIST_FOREACH_SAFE(emu, &ec->ec_muted_uids, emu_link, emu_tmp) {
 		if (emu->emu_uid == uid) {
 			LIST_REMOVE(emu, emu_link);
-			free(emu, M_ESC);
+			free(emu, M_OES);
 			ec->ec_muted_uid_count--;
 			EC_UNLOCK(ec);
 			return (0);
@@ -1857,7 +1857,7 @@ oes_client_mute_gid(struct oes_client *ec, gid_t gid)
 	}
 
 	/* Allocate new entry */
-	emg = malloc(sizeof(*emg), M_ESC, M_NOWAIT | M_ZERO);
+	emg = malloc(sizeof(*emg), M_OES, M_NOWAIT | M_ZERO);
 	if (emg == NULL) {
 		EC_UNLOCK(ec);
 		return (ENOMEM);
@@ -1881,7 +1881,7 @@ oes_client_unmute_gid(struct oes_client *ec, gid_t gid)
 	LIST_FOREACH_SAFE(emg, &ec->ec_muted_gids, emg_link, emg_tmp) {
 		if (emg->emg_gid == gid) {
 			LIST_REMOVE(emg, emg_link);
-			free(emg, M_ESC);
+			free(emg, M_OES);
 			ec->ec_muted_gid_count--;
 			EC_UNLOCK(ec);
 			return (0);
@@ -1900,7 +1900,7 @@ oes_client_unmute_all_uids(struct oes_client *ec)
 	EC_LOCK(ec);
 	LIST_FOREACH_SAFE(emu, &ec->ec_muted_uids, emu_link, emu_tmp) {
 		LIST_REMOVE(emu, emu_link);
-		free(emu, M_ESC);
+		free(emu, M_OES);
 	}
 	ec->ec_muted_uid_count = 0;
 	EC_UNLOCK(ec);
@@ -1914,7 +1914,7 @@ oes_client_unmute_all_gids(struct oes_client *ec)
 	EC_LOCK(ec);
 	LIST_FOREACH_SAFE(emg, &ec->ec_muted_gids, emg_link, emg_tmp) {
 		LIST_REMOVE(emg, emg_link);
-		free(emg, M_ESC);
+		free(emg, M_OES);
 	}
 	ec->ec_muted_gid_count = 0;
 	EC_UNLOCK(ec);

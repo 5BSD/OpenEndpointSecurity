@@ -45,7 +45,7 @@
 SDT_PROBE_DECLARE(oes, , , auth__allow);
 SDT_PROBE_DECLARE(oes, , , auth__deny);
 
-MALLOC_DECLARE(M_ESC);
+MALLOC_DECLARE(M_OES);
 
 /*
  * Per-credential label: stores the execution ID
@@ -132,7 +132,7 @@ oes_mac_cred_init_label(struct label *label)
 		return;
 	}
 
-	ecl = malloc(sizeof(*ecl), M_ESC, M_NOWAIT | M_ZERO);
+	ecl = malloc(sizeof(*ecl), M_OES, M_NOWAIT | M_ZERO);
 	if (ecl != NULL)
 		ecl->ecl_exec_id = oes_generate_exec_id();
 	SLOT_SET(label, ecl);
@@ -146,7 +146,7 @@ oes_mac_cred_destroy_label(struct label *label)
 
 	ecl = SLOT(label);
 	if (ecl != NULL) {
-		free(ecl, M_ESC);
+		free(ecl, M_OES);
 		SLOT_SET(label, NULL);
 	}
 }
@@ -330,9 +330,9 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 			OES_UNLOCK();
 
 			if (auth_eps != NULL)
-				free(auth_eps, M_ESC);
+				free(auth_eps, M_OES);
 			auth_eps = malloc(sizeof(*auth_eps) * need,
-			    M_ESC, M_WAITOK | M_ZERO);
+			    M_OES, M_WAITOK | M_ZERO);
 			auth_max = need;
 		}
 	} else {
@@ -568,7 +568,7 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 
 		for (i = 0; i < auth_count; i++)
 			oes_pending_rele(auth_eps[i]);
-		free(auth_eps, M_ESC);
+		free(auth_eps, M_OES);
 	}
 
 	if (ag != NULL)
@@ -592,7 +592,7 @@ oes_rename_cache_destroy(void)
 	mtx_lock(&oes_rename_mtx);
 	LIST_FOREACH_SAFE(ctx, &oes_rename_list, er_link, tmp) {
 		LIST_REMOVE(ctx, er_link);
-		free(ctx, M_ESC);
+		free(ctx, M_OES);
 	}
 	mtx_unlock(&oes_rename_mtx);
 	mtx_destroy(&oes_rename_mtx);
@@ -609,7 +609,7 @@ oes_rename_cache_store(struct thread *td,
 	if (info == NULL)
 		return;
 
-	ctx = malloc(sizeof(*ctx), M_ESC, M_NOWAIT | M_ZERO);
+	ctx = malloc(sizeof(*ctx), M_OES, M_NOWAIT | M_ZERO);
 	if (ctx == NULL)
 		return;
 
@@ -638,14 +638,14 @@ oes_rename_cache_store(struct thread *td,
 		    cur->er_tid == td->td_tid &&
 		    cur->er_pid == td->td_proc->p_pid) {
 			LIST_REMOVE(cur, er_link);
-			free(cur, M_ESC);
+			free(cur, M_OES);
 			found_self = true;
 			continue;
 		}
 		/* Garbage collect stale entries (failed/aborted renames) */
 		if (now - cur->er_time > OES_RENAME_CACHE_MAX_AGE) {
 			LIST_REMOVE(cur, er_link);
-			free(cur, M_ESC);
+			free(cur, M_OES);
 		}
 	}
 	LIST_INSERT_HEAD(&oes_rename_list, ctx, er_link);
@@ -685,7 +685,7 @@ oes_rename_cache_purge_pid(pid_t pid)
 		if (ctx->er_pid != pid)
 			continue;
 		LIST_REMOVE(ctx, er_link);
-		free(ctx, M_ESC);
+		free(ctx, M_OES);
 	}
 	mtx_unlock(&oes_rename_mtx);
 }
@@ -1117,7 +1117,7 @@ oes_pending_clone_nosleep(const struct oes_pending *src)
 {
 	struct oes_pending *ep;
 
-	ep = malloc(sizeof(*ep), M_ESC, M_NOWAIT | M_ZERO);
+	ep = malloc(sizeof(*ep), M_OES, M_NOWAIT | M_ZERO);
 	if (ep == NULL)
 		return (NULL);
 
@@ -2302,7 +2302,7 @@ oes_mac_vnode_check_rename_to(struct ucred *cred, struct vnode *dvp,
 		return (0);
 
 	error = oes_generate_vnode_event(OES_EVENT_AUTH_RENAME, &info);
-	free(ctx, M_ESC);
+	free(ctx, M_OES);
 	return (error);
 }
 

@@ -24,7 +24,7 @@
 #include <security/oes/oes.h>
 #include <security/oes/oes_internal.h>
 
-MALLOC_DECLARE(M_ESC);
+MALLOC_DECLARE(M_OES);
 
 /*
  * DTrace SDT provider for OES
@@ -90,7 +90,7 @@ oes_auth_group_alloc(void)
 {
 	struct oes_auth_group *ag;
 
-	ag = malloc(sizeof(*ag), M_ESC, M_NOWAIT | M_ZERO);
+	ag = malloc(sizeof(*ag), M_OES, M_NOWAIT | M_ZERO);
 	if (ag == NULL)
 		return (NULL);
 
@@ -119,7 +119,7 @@ oes_auth_group_rele(struct oes_auth_group *ag)
 	if (atomic_fetchadd_int(&ag->ag_refcount, -1) == 1) {
 		cv_destroy(&ag->ag_cv);
 		mtx_destroy(&ag->ag_mtx);
-		free(ag, M_ESC);
+		free(ag, M_OES);
 	}
 }
 
@@ -278,7 +278,7 @@ oes_pending_alloc(oes_event_type_t event, struct proc *p)
 {
 	struct oes_pending *ep;
 
-	ep = malloc(sizeof(*ep), M_ESC, M_NOWAIT | M_ZERO);
+	ep = malloc(sizeof(*ep), M_OES, M_NOWAIT | M_ZERO);
 	if (ep == NULL)
 		return (NULL);
 
@@ -321,7 +321,7 @@ oes_pending_clone(const struct oes_pending *src)
 	if (src == NULL)
 		return (NULL);
 
-	ep = malloc(sizeof(*ep), M_ESC, M_NOWAIT | M_ZERO);
+	ep = malloc(sizeof(*ep), M_OES, M_NOWAIT | M_ZERO);
 	if (ep == NULL)
 		return (NULL);
 
@@ -354,7 +354,7 @@ oes_pending_free(struct oes_pending *ep)
 	if (ep->ep_group != NULL)
 		oes_auth_group_rele(ep->ep_group);
 
-	free(ep, M_ESC);
+	free(ep, M_OES);
 }
 
 void

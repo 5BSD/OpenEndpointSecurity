@@ -1,2 +1,2 @@
 # OpenEndpointSecurity
-An implementation of EndpointSecurity on the 5BSD kernel.
+An open-source implementation of Apple's Endpoint Security framework for FreeBSD.

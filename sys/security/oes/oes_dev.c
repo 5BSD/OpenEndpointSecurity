@@ -32,7 +32,7 @@
 #include <security/oes/oes.h>
 #include <security/oes/oes_internal.h>
 
-MALLOC_DEFINE(M_ESC, "oes", "Endpoint Security Capabilities");
+MALLOC_DEFINE(M_OES, "oes", "Endpoint Security Capabilities");
 
 /*
  * Global state
@@ -46,27 +46,27 @@ SYSCTL_NODE(_security, OID_AUTO, oes, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
     "Endpoint Security Capabilities");
 
 int oes_debug = 0;
-SYSCTL_INT(_security_esc, OID_AUTO, debug, CTLFLAG_RW,
+SYSCTL_INT(_security_oes, OID_AUTO, debug, CTLFLAG_RW,
     &oes_debug, 0, "Enable debug output");
 
 int oes_default_timeout = OES_DEFAULT_TIMEOUT_MS;
-SYSCTL_INT(_security_esc, OID_AUTO, default_timeout, CTLFLAG_RW,
+SYSCTL_INT(_security_oes, OID_AUTO, default_timeout, CTLFLAG_RW,
     &oes_default_timeout, 0, "Default AUTH timeout in milliseconds");
 
 int oes_default_action = OES_AUTH_ALLOW;
-SYSCTL_INT(_security_esc, OID_AUTO, default_action, CTLFLAG_RW,
+SYSCTL_INT(_security_oes, OID_AUTO, default_action, CTLFLAG_RW,
     &oes_default_action, 0, "Default AUTH timeout action (0=allow, 1=deny)");
 
 int oes_default_queue_size = OES_DEFAULT_QUEUE_SIZE;
-SYSCTL_INT(_security_esc, OID_AUTO, default_queue_size, CTLFLAG_RW,
+SYSCTL_INT(_security_oes, OID_AUTO, default_queue_size, CTLFLAG_RW,
     &oes_default_queue_size, 0, "Default event queue size per client");
 
 int oes_max_clients = 64;
-SYSCTL_INT(_security_esc, OID_AUTO, max_clients, CTLFLAG_RW,
+SYSCTL_INT(_security_oes, OID_AUTO, max_clients, CTLFLAG_RW,
     &oes_max_clients, 0, "Maximum number of concurrent clients");
 
 int oes_cache_max_entries = 1024;
-SYSCTL_INT(_security_esc, OID_AUTO, cache_max_entries, CTLFLAG_RW,
+SYSCTL_INT(_security_oes, OID_AUTO, cache_max_entries, CTLFLAG_RW,
     &oes_cache_max_entries, 0, "Maximum decision cache entries per client");
 
 /*
@@ -77,17 +77,17 @@ SYSCTL_INT(_security_esc, OID_AUTO, cache_max_entries, CTLFLAG_RW,
  * Applied when client calls OES_IOC_SET_MODE.
  */
 char oes_default_muted_paths[1024] = "";
-SYSCTL_STRING(_security_esc, OID_AUTO, default_muted_paths, CTLFLAG_RW,
+SYSCTL_STRING(_security_oes, OID_AUTO, default_muted_paths, CTLFLAG_RW,
     oes_default_muted_paths, sizeof(oes_default_muted_paths),
     "Colon-separated paths to mute by default (prefix match)");
 
 char oes_default_muted_paths_literal[1024] = "";
-SYSCTL_STRING(_security_esc, OID_AUTO, default_muted_paths_literal, CTLFLAG_RW,
+SYSCTL_STRING(_security_oes, OID_AUTO, default_muted_paths_literal, CTLFLAG_RW,
     oes_default_muted_paths_literal, sizeof(oes_default_muted_paths_literal),
     "Colon-separated paths to mute by default (literal match)");
 
 int oes_default_self_mute = 1;
-SYSCTL_INT(_security_esc, OID_AUTO, default_self_mute, CTLFLAG_RW,
+SYSCTL_INT(_security_oes, OID_AUTO, default_self_mute, CTLFLAG_RW,
     &oes_default_self_mute, 0, "Automatically self-mute new clients (1=yes)");
 
 /*
@@ -486,15 +486,15 @@ oes_ioctl_subscribe(struct oes_client *ec, struct oes_subscribe_args *args)
 	if (count == 0 || count > 64)
 		return (EINVAL);
 
-	events = malloc(count * sizeof(*events), M_ESC, M_WAITOK);
+	events = malloc(count * sizeof(*events), M_OES, M_WAITOK);
 	error = copyin(args->esa_events, events, count * sizeof(*events));
 	if (error) {
-		free(events, M_ESC);
+		free(events, M_OES);
 		return (error);
 	}
 
 	error = oes_client_subscribe_events(ec, events, count, args->esa_flags);
-	free(events, M_ESC);
+	free(events, M_OES);
 	return (error);
 }
 
@@ -604,7 +604,7 @@ oes_ioctl_unmute_process(struct oes_client *ec, struct oes_mute_args *args)
 		    em_link, em_tmp) {
 			if (em->em_pid == mypid) {
 				LIST_REMOVE(em, em_link);
-				free(em, M_ESC);
+				free(em, M_OES);
 				ec->ec_muted_proc_count--;
 				break;
 			}
@@ -806,13 +806,13 @@ oes_ioctl_get_muted_processes(struct oes_client *ec,
 
 	/* Allocate kernel buffer for results */
 	if (count > 0 && args->egmp_entries != NULL)
-		kbuf = malloc(count * sizeof(*kbuf), M_ESC, M_WAITOK | M_ZERO);
+		kbuf = malloc(count * sizeof(*kbuf), M_OES, M_WAITOK | M_ZERO);
 
 	/* Fill kernel buffer */
 	error = oes_client_get_muted_processes(ec, kbuf, count, &actual);
 	if (error != 0) {
 		if (kbuf != NULL)
-			free(kbuf, M_ESC);
+			free(kbuf, M_OES);
 		return (error);
 	}
 
@@ -824,7 +824,7 @@ oes_ioctl_get_muted_processes(struct oes_client *ec,
 	}
 
 	if (kbuf != NULL)
-		free(kbuf, M_ESC);
+		free(kbuf, M_OES);
 
 	args->egmp_actual = actual;
 	return (error);
@@ -849,13 +849,13 @@ oes_ioctl_get_muted_paths(struct oes_client *ec,
 
 	/* Allocate kernel buffer for results */
 	if (count > 0 && args->egmpa_entries != NULL)
-		kbuf = malloc(count * sizeof(*kbuf), M_ESC, M_WAITOK | M_ZERO);
+		kbuf = malloc(count * sizeof(*kbuf), M_OES, M_WAITOK | M_ZERO);
 
 	/* Fill kernel buffer */
 	error = oes_client_get_muted_paths(ec, kbuf, count, &actual, target);
 	if (error != 0) {
 		if (kbuf != NULL)
-			free(kbuf, M_ESC);
+			free(kbuf, M_OES);
 		return (error);
 	}
 
@@ -867,7 +867,7 @@ oes_ioctl_get_muted_paths(struct oes_client *ec,
 	}
 
 	if (kbuf != NULL)
-		free(kbuf, M_ESC);
+		free(kbuf, M_OES);
 
 	args->egmpa_actual = actual;
 	return (error);

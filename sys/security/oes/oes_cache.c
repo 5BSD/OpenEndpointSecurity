@@ -16,7 +16,7 @@
 #include <security/oes/oes.h>
 #include <security/oes/oes_internal.h>
 
-MALLOC_DECLARE(M_ESC);
+MALLOC_DECLARE(M_OES);
 
 /* DTrace probes defined in oes_event.c */
 SDT_PROBE_DECLARE(oes, , , cache__hit);
@@ -292,7 +292,7 @@ oes_cache_remove_entry_locked(struct oes_client *ec,
 		ec->ec_cache_expired++;
 	else if (eviction)
 		ec->ec_cache_evictions++;
-	free(entry, M_ESC);
+	free(entry, M_OES);
 }
 
 static void
@@ -364,7 +364,7 @@ oes_client_cache_add(struct oes_client *ec, const oes_cache_entry_t *entry)
 		return (EINVAL);
 
 	oes_cache_make_deadline(&expires, entry->ece_ttl_ms);
-	new_entry = malloc(sizeof(*new_entry), M_ESC, M_WAITOK | M_ZERO);
+	new_entry = malloc(sizeof(*new_entry), M_OES, M_WAITOK | M_ZERO);
 	new_entry->ece_key = entry->ece_key;
 	new_entry->ece_result = entry->ece_result;
 	new_entry->ece_expires = expires;
@@ -372,7 +372,7 @@ oes_client_cache_add(struct oes_client *ec, const oes_cache_entry_t *entry)
 	EC_LOCK(ec);
 	if (ec->ec_cache_max == 0) {
 		EC_UNLOCK(ec);
-		free(new_entry, M_ESC);
+		free(new_entry, M_OES);
 		return (ENOSPC);
 	}
 
@@ -384,7 +384,7 @@ oes_client_cache_add(struct oes_client *ec, const oes_cache_entry_t *entry)
 			TAILQ_REMOVE(&ec->ec_cache_lru, cur, ece_lru);
 			TAILQ_INSERT_HEAD(&ec->ec_cache_lru, cur, ece_lru);
 			EC_UNLOCK(ec);
-			free(new_entry, M_ESC);
+			free(new_entry, M_OES);
 			return (0);
 		}
 	}
