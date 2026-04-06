@@ -21,7 +21,7 @@ test_mmap_file(void)
 
 	TEST_BEGIN("mmap file event");
 
-	fd = test_open_esc();
+	fd = test_open_oes();
 	if (fd < 0)
 		return (1);
 
@@ -87,7 +87,7 @@ test_mmap_anon(void)
 
 	TEST_BEGIN("mmap anonymous event");
 
-	fd = test_open_esc();
+	fd = test_open_oes();
 	if (fd < 0)
 		return (1);
 
@@ -137,7 +137,7 @@ test_mprotect(void)
 
 	TEST_BEGIN("mprotect event");
 
-	fd = test_open_esc();
+	fd = test_open_oes();
 	if (fd < 0)
 		return (1);
 
@@ -200,7 +200,7 @@ test_mmap_exec(void)
 
 	TEST_BEGIN("mmap with PROT_EXEC");
 
-	fd = test_open_esc();
+	fd = test_open_oes();
 	if (fd < 0)
 		return (1);
 
@@ -284,7 +284,7 @@ test_auth_mmap(void)
 
 	TEST_BEGIN("AUTH mmap (allow)");
 
-	fd = test_open_esc();
+	fd = test_open_oes();
 	if (fd < 0)
 		return (1);
 

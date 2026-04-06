@@ -20,7 +20,7 @@ test_chdir_event(void)
 
 	TEST_BEGIN("chdir event");
 
-	fd = test_open_esc();
+	fd = test_open_oes();
 	if (fd < 0)
 		return (1);
 
@@ -80,7 +80,7 @@ test_fchdir_event(void)
 
 	TEST_BEGIN("fchdir event");
 
-	fd = test_open_esc();
+	fd = test_open_oes();
 	if (fd < 0)
 		return (1);
 
@@ -154,7 +154,7 @@ test_chroot_event(void)
 		return (0);
 	}
 
-	fd = test_open_esc();
+	fd = test_open_oes();
 	if (fd < 0)
 		return (1);
 
@@ -244,7 +244,7 @@ test_sysctl_event(void)
 
 	TEST_BEGIN("sysctl event");
 
-	fd = test_open_esc();
+	fd = test_open_oes();
 	if (fd < 0)
 		return (1);
 
@@ -297,7 +297,7 @@ test_kenv_event(void)
 
 	TEST_BEGIN("kenv event");
 
-	fd = test_open_esc();
+	fd = test_open_oes();
 	if (fd < 0)
 		return (1);
 
@@ -353,7 +353,7 @@ test_auth_chdir(void)
 
 	TEST_BEGIN("AUTH chdir (deny)");
 
-	fd = test_open_esc();
+	fd = test_open_oes();
 	if (fd < 0)
 		return (1);
 

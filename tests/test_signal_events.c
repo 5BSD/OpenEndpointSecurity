@@ -21,7 +21,7 @@ test_signal_to_child(void)
 
 	TEST_BEGIN("signal to child process");
 
-	fd = test_open_esc();
+	fd = test_open_oes();
 	if (fd < 0)
 		return (1);
 
@@ -124,7 +124,7 @@ test_signal_self(void)
 
 	TEST_BEGIN("signal to self (SIGUSR1)");
 
-	fd = test_open_esc();
+	fd = test_open_oes();
 	if (fd < 0)
 		return (1);
 
@@ -168,7 +168,7 @@ test_ptrace_event(void)
 
 	TEST_BEGIN("ptrace attach event");
 
-	fd = test_open_esc();
+	fd = test_open_oes();
 	if (fd < 0)
 		return (1);
 
@@ -252,7 +252,7 @@ test_setuid_setgid_events(void)
 
 	TEST_BEGIN("setuid/setgid events");
 
-	fd = test_open_esc();
+	fd = test_open_oes();
 	if (fd < 0)
 		return (1);
 

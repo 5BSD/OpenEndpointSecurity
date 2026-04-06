@@ -332,7 +332,7 @@ oes_read(struct cdev *dev, struct uio *uio, int ioflag)
 			return (EAGAIN);
 		}
 		error = msleep(&ec->ec_pending, &ec->ec_mtx, PCATCH,
-		    "escrd", 0);
+		    "oesrd", 0);
 		if (error) {
 			EC_UNLOCK(ec);
 			return (error);
@@ -362,7 +362,7 @@ oes_read(struct cdev *dev, struct uio *uio, int ioflag)
 					return (EAGAIN);
 				}
 				error = msleep(&ec->ec_pending, &ec->ec_mtx,
-				    PCATCH, "escrd", 0);
+				    PCATCH, "oesrd", 0);
 				if (error) {
 					EC_UNLOCK(ec);
 					return (error);

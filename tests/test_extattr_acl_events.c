@@ -27,7 +27,7 @@ test_extattr_set_get(void)
 
 	TEST_BEGIN("extattr set/get events");
 
-	fd = test_open_esc();
+	fd = test_open_oes();
 	if (fd < 0)
 		return (1);
 
@@ -119,7 +119,7 @@ test_extattr_delete_list(void)
 
 	TEST_BEGIN("extattr delete/list events");
 
-	fd = test_open_esc();
+	fd = test_open_oes();
 	if (fd < 0)
 		return (1);
 
@@ -218,7 +218,7 @@ test_acl_get_set(void)
 
 	TEST_BEGIN("ACL get/set events");
 
-	fd = test_open_esc();
+	fd = test_open_oes();
 	if (fd < 0)
 		return (1);
 
@@ -310,7 +310,7 @@ test_acl_delete(void)
 
 	TEST_BEGIN("ACL delete event");
 
-	fd = test_open_esc();
+	fd = test_open_oes();
 	if (fd < 0)
 		return (1);
 
