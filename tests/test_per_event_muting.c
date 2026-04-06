@@ -1,0 +1,309 @@
+/*
+ * ESC per-event muting test.
+ *
+ * Tests ESC_IOC_MUTE_PROCESS_EVENTS, ESC_IOC_UNMUTE_PROCESS_EVENTS,
+ * ESC_IOC_MUTE_PATH_EVENTS, and ESC_IOC_UNMUTE_PATH_EVENTS.
+ */
+#include <sys/ioctl.h>
+#include <sys/poll.h>
+#include <sys/wait.h>
+
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+
+#include <security/esc/esc.h>
+
+static int
+respond_allow(int fd, const esc_message_t *msg)
+{
+	esc_response_t resp;
+
+	if (msg->em_action != ESC_ACTION_AUTH)
+		return (0);
+
+	memset(&resp, 0, sizeof(resp));
+	resp.er_id = msg->em_id;
+	resp.er_result = ESC_AUTH_ALLOW;
+	return (write(fd, &resp, sizeof(resp)) == sizeof(resp) ? 0 : -1);
+}
+
+static int
+wait_for_event(int fd, pid_t pid, esc_event_type_t event, int timeout_ms,
+    esc_message_t *out)
+{
+	struct pollfd pfd;
+	struct timespec start;
+
+	pfd.fd = fd;
+	pfd.events = POLLIN;
+	clock_gettime(CLOCK_MONOTONIC, &start);
+
+	for (;;) {
+		struct timespec now;
+		long elapsed_ms;
+
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		elapsed_ms = (now.tv_sec - start.tv_sec) * 1000L +
+		    (now.tv_nsec - start.tv_nsec) / 1000000L;
+		if (elapsed_ms >= timeout_ms)
+			break;
+
+		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
+			esc_message_t msg;
+			ssize_t n = read(fd, &msg, sizeof(msg));
+			if (n < 0) {
+				if (errno == EAGAIN || errno == EWOULDBLOCK)
+					continue;
+				perror("read");
+				return (-1);
+			}
+			if ((size_t)n != sizeof(msg))
+				continue;
+
+			(void)respond_allow(fd, &msg);
+
+			if (msg.em_process.ep_pid != pid)
+				continue;
+			if (msg.em_event != event)
+				continue;
+			if (out != NULL)
+				*out = msg;
+			return (0);
+		}
+	}
+
+	return (ETIMEDOUT);
+}
+
+int
+main(void)
+{
+	int fd;
+	struct esc_mode_args mode;
+	struct esc_subscribe_args sub;
+	struct esc_mute_process_events_args mute_proc;
+	struct esc_mute_path_events_args mute_path;
+	esc_event_type_t events[] = {
+		ESC_EVENT_NOTIFY_OPEN,
+		ESC_EVENT_NOTIFY_ACCESS,
+	};
+	int pipefd[2];
+	pid_t child;
+	int status;
+	char cmd;
+	int ret;
+
+	printf("Testing per-event muting...\n");
+
+	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	if (fd < 0) {
+		perror("open /dev/esc");
+		return (1);
+	}
+
+	memset(&mode, 0, sizeof(mode));
+	mode.ema_mode = ESC_MODE_NOTIFY;
+	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
+		perror("ESC_IOC_SET_MODE");
+		close(fd);
+		return (1);
+	}
+
+	memset(&sub, 0, sizeof(sub));
+	sub.esa_events = events;
+	sub.esa_count = sizeof(events) / sizeof(events[0]);
+	sub.esa_flags = ESC_SUB_REPLACE;
+	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("ESC_IOC_SUBSCRIBE");
+		close(fd);
+		return (1);
+	}
+
+	/*
+	 * Clear the default self-mute first (security.esc.default_self_mute=1
+	 * would otherwise block ALL events from ourselves, not just per-event).
+	 */
+	if (ioctl(fd, ESC_IOC_UNMUTE_ALL_PROCESSES, NULL) < 0) {
+		perror("ESC_IOC_UNMUTE_ALL_PROCESSES");
+		close(fd);
+		return (1);
+	}
+
+	/* Self-mute only OPEN events, not ACCESS */
+	memset(&mute_proc, 0, sizeof(mute_proc));
+	mute_proc.empe_flags = ESC_MUTE_SELF;
+	mute_proc.empe_count = 1;
+	mute_proc.empe_events[0] = ESC_EVENT_NOTIFY_OPEN;
+	if (ioctl(fd, ESC_IOC_MUTE_PROCESS_EVENTS, &mute_proc) < 0) {
+		perror("ESC_IOC_MUTE_PROCESS_EVENTS (self)");
+		close(fd);
+		return (1);
+	}
+
+	/* Verify mute was applied */
+	{
+		struct esc_get_muted_processes_args get_procs;
+		struct esc_muted_process_entry proc_entries[4];
+		size_t i;
+
+		memset(&get_procs, 0, sizeof(get_procs));
+		get_procs.egmp_entries = proc_entries;
+		get_procs.egmp_count = 4;
+		if (ioctl(fd, ESC_IOC_GET_MUTED_PROCESSES, &get_procs) == 0) {
+			fprintf(stderr, "  DEBUG: muted_count=%zu, my_pid=%d\n",
+			    get_procs.egmp_actual, getpid());
+			for (i = 0; i < get_procs.egmp_actual && i < 4; i++) {
+				fprintf(stderr, "    entry[%zu]: pid=%llu event_count=%u\n",
+				    i, (unsigned long long)proc_entries[i].emp_token.ept_id,
+				    proc_entries[i].emp_event_count);
+			}
+		}
+	}
+
+	/* Trigger an OPEN event - should be muted */
+	(void)open("/etc/passwd", O_RDONLY);
+
+	ret = wait_for_event(fd, getpid(), ESC_EVENT_NOTIFY_OPEN, 500, NULL);
+	if (ret == 0) {
+		fprintf(stderr, "FAIL: self-muted OPEN event still delivered\n");
+		close(fd);
+		return (1);
+	}
+	printf("  PASS: self per-event mute suppressed OPEN\n");
+
+	/* Trigger an ACCESS event - should NOT be muted */
+	(void)access("/etc/passwd", R_OK);
+
+	ret = wait_for_event(fd, getpid(), ESC_EVENT_NOTIFY_ACCESS, 1000, NULL);
+	if (ret != 0) {
+		fprintf(stderr, "FAIL: ACCESS event not delivered (should not be muted)\n");
+		close(fd);
+		return (1);
+	}
+	printf("  PASS: ACCESS event delivered (not muted)\n");
+
+	/* Unmute OPEN events */
+	if (ioctl(fd, ESC_IOC_UNMUTE_PROCESS_EVENTS, &mute_proc) < 0) {
+		perror("ESC_IOC_UNMUTE_PROCESS_EVENTS (self)");
+		close(fd);
+		return (1);
+	}
+
+	/* Trigger OPEN again - should now be delivered */
+	(void)open("/etc/hosts", O_RDONLY);
+
+	ret = wait_for_event(fd, getpid(), ESC_EVENT_NOTIFY_OPEN, 1000, NULL);
+	if (ret != 0) {
+		fprintf(stderr, "FAIL: OPEN event not delivered after unmute\n");
+		close(fd);
+		return (1);
+	}
+	printf("  PASS: OPEN event delivered after unmute\n");
+
+	/* Now test per-event path muting */
+	memset(&mute_path, 0, sizeof(mute_path));
+	strlcpy(mute_path.empae_path, "/etc/passwd", sizeof(mute_path.empae_path));
+	mute_path.empae_type = ESC_MUTE_PATH_LITERAL;
+	mute_path.empae_count = 1;
+	mute_path.empae_events[0] = ESC_EVENT_NOTIFY_OPEN;
+	if (ioctl(fd, ESC_IOC_MUTE_PATH_EVENTS, &mute_path) < 0) {
+		perror("ESC_IOC_MUTE_PATH_EVENTS");
+		close(fd);
+		return (1);
+	}
+
+	/* Test with child process */
+	if (pipe(pipefd) != 0) {
+		perror("pipe");
+		close(fd);
+		return (1);
+	}
+
+	child = fork();
+	if (child < 0) {
+		perror("fork");
+		close(fd);
+		return (1);
+	}
+
+	if (child == 0) {
+		close(fd);
+		close(pipefd[1]);
+		for (;;) {
+			if (read(pipefd[0], &cmd, 1) != 1)
+				break;
+			if (cmd == 'q')
+				break;
+			if (cmd == 'p')
+				(void)open("/etc/passwd", O_RDONLY);
+			if (cmd == 'h')
+				(void)open("/etc/hosts", O_RDONLY);
+		}
+		close(pipefd[0]);
+		_exit(0);
+	}
+
+	close(pipefd[0]);
+
+	/* Child opens /etc/passwd - path-muted for OPEN */
+	cmd = 'p';
+	(void)write(pipefd[1], &cmd, 1);
+	usleep(100000);
+
+	ret = wait_for_event(fd, child, ESC_EVENT_NOTIFY_OPEN, 500, NULL);
+	if (ret == 0) {
+		fprintf(stderr, "FAIL: path-muted OPEN still delivered\n");
+		goto fail;
+	}
+	printf("  PASS: path per-event mute suppressed OPEN for /etc/passwd\n");
+
+	/* Child opens /etc/hosts - NOT path-muted */
+	cmd = 'h';
+	(void)write(pipefd[1], &cmd, 1);
+
+	ret = wait_for_event(fd, child, ESC_EVENT_NOTIFY_OPEN, 1000, NULL);
+	if (ret != 0) {
+		fprintf(stderr, "FAIL: non-muted path OPEN not delivered\n");
+		goto fail;
+	}
+	printf("  PASS: OPEN for /etc/hosts delivered (different path)\n");
+
+	/* Unmute the path */
+	if (ioctl(fd, ESC_IOC_UNMUTE_PATH_EVENTS, &mute_path) < 0) {
+		perror("ESC_IOC_UNMUTE_PATH_EVENTS");
+		goto fail;
+	}
+
+	/* Now /etc/passwd should deliver OPEN */
+	cmd = 'p';
+	(void)write(pipefd[1], &cmd, 1);
+
+	ret = wait_for_event(fd, child, ESC_EVENT_NOTIFY_OPEN, 1000, NULL);
+	if (ret != 0) {
+		fprintf(stderr, "FAIL: OPEN for /etc/passwd not delivered after unmute\n");
+		goto fail;
+	}
+	printf("  PASS: OPEN for /etc/passwd delivered after unmute\n");
+
+	cmd = 'q';
+	(void)write(pipefd[1], &cmd, 1);
+	(void)waitpid(child, &status, 0);
+	close(pipefd[1]);
+	close(fd);
+
+	printf("per-event muting: ok\n");
+	return (0);
+
+fail:
+	cmd = 'q';
+	(void)write(pipefd[1], &cmd, 1);
+	(void)waitpid(child, &status, 0);
+	close(pipefd[1]);
+	close(fd);
+	return (1);
+}

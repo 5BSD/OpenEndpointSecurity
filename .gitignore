@@ -1,0 +1,53 @@
+# Build artifacts
+*.o
+*.ko
+*.kld
+*.ko.debug
+.depend*
+export_syms
+machine
+x86
+i386
+opt_*.h
+vnode_if.h
+vnode_if_newproto.h
+vnode_if_typedef.h
+bus_if.h
+device_if.h
+
+# Library build artifacts
+*.a
+*.so
+*.so.*
+*.pico
+*.pieo
+*.debug
+*.full
+*.gz
+
+# Compiled test binaries
+test_esc
+tests/test_*
+!tests/test_*.c
+!tests/test_*.sh
+
+# Example binaries
+examples/escd
+examples/vendor_client
+
+# Local deployment scripts (may contain IPs/credentials)
+deploy-*.sh
+
+# Patches directory (internal)
+patches/
+
+# Editor/IDE files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

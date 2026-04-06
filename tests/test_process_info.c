@@ -1,0 +1,188 @@
+/*
+ * ESC process info test.
+ *
+ * Tests that process events contain correct:
+ * - ABI information (FreeBSD vs Linux binary detection)
+ * - Parent process info (ppid, pcomm)
+ */
+#include <sys/ioctl.h>
+#include <sys/poll.h>
+#include <sys/wait.h>
+
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+
+#include <security/esc/esc.h>
+
+static int
+read_fork_event(int fd, esc_message_t *out_msg)
+{
+	esc_message_t msg;
+	ssize_t n;
+	struct pollfd pfd;
+	struct timespec start;
+
+	clock_gettime(CLOCK_MONOTONIC, &start);
+	pfd.fd = fd;
+	pfd.events = POLLIN;
+
+	while (1) {
+		struct timespec now;
+		long elapsed_ms;
+
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		elapsed_ms = (now.tv_sec - start.tv_sec) * 1000L +
+		    (now.tv_nsec - start.tv_nsec) / 1000000L;
+		if (elapsed_ms > 2000)
+			break;
+
+		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
+			n = read(fd, &msg, sizeof(msg));
+			if (n == sizeof(msg) &&
+			    msg.em_event == ESC_EVENT_NOTIFY_FORK) {
+				*out_msg = msg;
+				return (0);
+			}
+		}
+	}
+	return (-1);
+}
+
+int
+main(void)
+{
+	int fd;
+	struct esc_mode_args mode;
+	struct esc_subscribe_args sub;
+	esc_event_type_t events[] = {
+		ESC_EVENT_NOTIFY_FORK,
+	};
+	esc_message_t msg;
+	pid_t child, mypid;
+	int status;
+	int errors = 0;
+	char my_comm[20];
+
+	printf("Testing process info (ABI, parent)...\n");
+
+	/* Get our own info for comparison */
+	mypid = getpid();
+	/* Our comm name is test_process_info (truncated) */
+	strlcpy(my_comm, "test_process_in", sizeof(my_comm));
+
+	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	if (fd < 0) {
+		perror("open /dev/esc");
+		return (1);
+	}
+
+	memset(&mode, 0, sizeof(mode));
+	mode.ema_mode = ESC_MODE_NOTIFY;
+	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
+		perror("ESC_IOC_SET_MODE");
+		close(fd);
+		return (1);
+	}
+
+	memset(&sub, 0, sizeof(sub));
+	sub.esa_events = events;
+	sub.esa_count = sizeof(events) / sizeof(events[0]);
+	sub.esa_flags = ESC_SUB_REPLACE;
+	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("ESC_IOC_SUBSCRIBE");
+		close(fd);
+		return (1);
+	}
+
+	/*
+	 * Clear the default self-mute so we can see our own fork events.
+	 * (security.esc.default_self_mute=1 would otherwise block them.)
+	 */
+	if (ioctl(fd, ESC_IOC_UNMUTE_ALL_PROCESSES, NULL) < 0) {
+		perror("ESC_IOC_UNMUTE_ALL_PROCESSES");
+		close(fd);
+		return (1);
+	}
+
+	/* Fork a child to generate event */
+	child = fork();
+	if (child < 0) {
+		perror("fork");
+		close(fd);
+		return (1);
+	}
+	if (child == 0) {
+		/* Child - just exit */
+		_exit(0);
+	}
+
+	/* Parent - wait for fork event */
+	if (read_fork_event(fd, &msg) < 0) {
+		fprintf(stderr, "FAIL: no FORK event received\n");
+		waitpid(child, &status, 0);
+		close(fd);
+		return (1);
+	}
+
+	waitpid(child, &status, 0);
+	close(fd);
+
+	/* Verify child info from fork event */
+	esc_process_t *proc = &msg.em_event_data.fork.child;
+
+	printf("  Child PID: %d (expected around %d)\n", proc->ep_pid, child);
+	printf("  Parent PID: %d (expected %d)\n", proc->ep_ppid, mypid);
+	printf("  Parent comm: '%s'\n", proc->ep_pcomm);
+	printf("  ABI: %d (EP_ABI_FREEBSD=%d, EP_ABI_LINUX=%d)\n",
+	    proc->ep_abi, EP_ABI_FREEBSD, EP_ABI_LINUX);
+	printf("  Flags: 0x%x (EP_FLAG_LINUX=0x%x)\n",
+	    proc->ep_flags, EP_FLAG_LINUX);
+
+	/* Test 1: Parent PID should be us */
+	if (proc->ep_ppid != mypid) {
+		fprintf(stderr, "  FAIL: ep_ppid=%d, expected %d\n",
+		    proc->ep_ppid, mypid);
+		errors++;
+	} else {
+		printf("  PASS: Parent PID correct\n");
+	}
+
+	/* Test 2: Parent comm should match our name */
+	if (strncmp(proc->ep_pcomm, "test_process_in", 15) != 0) {
+		fprintf(stderr, "  FAIL: ep_pcomm='%s', expected 'test_process_in*'\n",
+		    proc->ep_pcomm);
+		errors++;
+	} else {
+		printf("  PASS: Parent comm correct\n");
+	}
+
+	/* Test 3: ABI should be FreeBSD (not Linux) */
+	if (proc->ep_abi != EP_ABI_FREEBSD) {
+		fprintf(stderr, "  FAIL: ep_abi=%d, expected EP_ABI_FREEBSD (%d)\n",
+		    proc->ep_abi, EP_ABI_FREEBSD);
+		errors++;
+	} else {
+		printf("  PASS: ABI is FreeBSD\n");
+	}
+
+	/* Test 4: EP_FLAG_LINUX should NOT be set */
+	if (proc->ep_flags & EP_FLAG_LINUX) {
+		fprintf(stderr, "  FAIL: EP_FLAG_LINUX is set for native binary\n");
+		errors++;
+	} else {
+		printf("  PASS: EP_FLAG_LINUX not set\n");
+	}
+
+	if (errors > 0) {
+		fprintf(stderr, "FAIL: %d test(s) failed\n", errors);
+		return (1);
+	}
+
+	printf("process info: ok\n");
+	return (0);
+}
