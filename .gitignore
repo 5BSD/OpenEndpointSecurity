@@ -26,13 +26,13 @@ device_if.h
 *.gz
 
 # Compiled test binaries
-test_esc
+test_oes
 tests/test_*
 !tests/test_*.c
 !tests/test_*.sh
 
 # Example binaries
-examples/escd
+examples/oesd
 examples/vendor_client
 
 # Local deployment scripts (may contain IPs/credentials)

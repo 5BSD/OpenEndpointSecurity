@@ -1,5 +1,5 @@
 /*
- * ESC path/target path muting smoke test.
+ * OES path/target path muting smoke test.
  */
 #include <sys/ioctl.h>
 #include <sys/poll.h>
@@ -13,19 +13,19 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 static int
-respond_allow(int fd, const esc_message_t *msg)
+respond_allow(int fd, const oes_message_t *msg)
 {
-	esc_response_t resp;
+	oes_response_t resp;
 
-	if (msg->em_action != ESC_ACTION_AUTH)
+	if (msg->em_action != OES_ACTION_AUTH)
 		return (0);
 
 	memset(&resp, 0, sizeof(resp));
 	resp.er_id = msg->em_id;
-	resp.er_result = ESC_AUTH_ALLOW;
+	resp.er_result = OES_AUTH_ALLOW;
 	return (write(fd, &resp, sizeof(resp)) == sizeof(resp) ? 0 : -1);
 }
 
@@ -51,7 +51,7 @@ wait_for_exec(int fd, pid_t pid, const char *path, int timeout_ms,
 			break;
 
 		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			esc_message_t msg;
+			oes_message_t msg;
 			ssize_t n = read(fd, &msg, sizeof(msg));
 			if (n < 0) {
 				if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -64,7 +64,7 @@ wait_for_exec(int fd, pid_t pid, const char *path, int timeout_ms,
 
 			(void)respond_allow(fd, &msg);
 
-			if (msg.em_event != ESC_EVENT_AUTH_EXEC ||
+			if (msg.em_event != OES_EVENT_AUTH_EXEC ||
 			    msg.em_process.ep_pid != pid)
 				continue;
 
@@ -105,7 +105,7 @@ wait_for_link(int fd, pid_t pid, const char *name, int timeout_ms,
 			break;
 
 		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			esc_message_t msg;
+			oes_message_t msg;
 			ssize_t n = read(fd, &msg, sizeof(msg));
 			if (n < 0) {
 				if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -118,7 +118,7 @@ wait_for_link(int fd, pid_t pid, const char *name, int timeout_ms,
 
 			(void)respond_allow(fd, &msg);
 
-			if (msg.em_event != ESC_EVENT_AUTH_LINK ||
+			if (msg.em_event != OES_EVENT_AUTH_LINK ||
 			    msg.em_process.ep_pid != pid)
 				continue;
 
@@ -164,31 +164,31 @@ int
 main(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = {
-		ESC_EVENT_AUTH_EXEC,
-		ESC_EVENT_AUTH_LINK,
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = {
+		OES_EVENT_AUTH_EXEC,
+		OES_EVENT_AUTH_LINK,
 	};
-	struct esc_mute_path_args mpath;
+	struct oes_mute_path_args mpath;
 	pid_t pid;
 	int status;
 	int rc;
-	char srcpath[] = "/tmp/esc-pathmute.XXXXXX";
-	char linkok[] = "/tmp/esc-link-ok";
-	char linkmuted[] = "/tmp/esc-link-muted";
+	char srcpath[] = "/tmp/oes-pathmute.XXXXXX";
+	char linkok[] = "/tmp/oes-link-ok";
+	char linkmuted[] = "/tmp/oes-link-muted";
 	int srcfd;
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_AUTH;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_AUTH;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -196,18 +196,18 @@ main(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = sizeof(events) / sizeof(events[0]);
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
 
 	memset(&mpath, 0, sizeof(mpath));
 	strlcpy(mpath.emp_path, "/bin/echo", sizeof(mpath.emp_path));
-	mpath.emp_type = ESC_MUTE_PATH_LITERAL;
-	if (ioctl(fd, ESC_IOC_MUTE_PATH, &mpath) < 0) {
-		perror("ESC_IOC_MUTE_PATH");
+	mpath.emp_type = OES_MUTE_PATH_LITERAL;
+	if (ioctl(fd, OES_IOC_MUTE_PATH, &mpath) < 0) {
+		perror("OES_IOC_MUTE_PATH");
 		close(fd);
 		return (1);
 	}
@@ -240,12 +240,12 @@ main(void)
 		return (1);
 	}
 
-	if (ioctl(fd, ESC_IOC_SET_MUTE_INVERT,
-	    &(struct esc_mute_invert_args){
-		.emi_type = ESC_MUTE_INVERT_PATH,
+	if (ioctl(fd, OES_IOC_SET_MUTE_INVERT,
+	    &(struct oes_mute_invert_args){
+		.emi_type = OES_MUTE_INVERT_PATH,
 		.emi_invert = 1,
 	    }) < 0) {
-		perror("ESC_IOC_SET_MUTE_INVERT");
+		perror("OES_IOC_SET_MUTE_INVERT");
 		close(fd);
 		return (1);
 	}
@@ -278,12 +278,12 @@ main(void)
 		return (1);
 	}
 
-	if (ioctl(fd, ESC_IOC_SET_MUTE_INVERT,
-	    &(struct esc_mute_invert_args){
-		.emi_type = ESC_MUTE_INVERT_PATH,
+	if (ioctl(fd, OES_IOC_SET_MUTE_INVERT,
+	    &(struct oes_mute_invert_args){
+		.emi_type = OES_MUTE_INVERT_PATH,
 		.emi_invert = 0,
 	    }) < 0) {
-		perror("ESC_IOC_SET_MUTE_INVERT");
+		perror("OES_IOC_SET_MUTE_INVERT");
 		close(fd);
 		return (1);
 	}
@@ -305,7 +305,7 @@ main(void)
 		unlink(srcpath);
 		return (1);
 	}
-	rc = wait_for_link(fd, pid, "esc-link-ok", 2000, 1);
+	rc = wait_for_link(fd, pid, "oes-link-ok", 2000, 1);
 	(void)waitpid(pid, &status, 0);
 	if (rc != 0) {
 		fprintf(stderr, "link event missing\n");
@@ -317,11 +317,11 @@ main(void)
 	unlink(linkok);
 
 	memset(&mpath, 0, sizeof(mpath));
-	strlcpy(mpath.emp_path, "esc-link-muted", sizeof(mpath.emp_path));
-	mpath.emp_type = ESC_MUTE_PATH_LITERAL;
-	mpath.emp_flags = ESC_MUTE_PATH_FLAG_TARGET;
-	if (ioctl(fd, ESC_IOC_MUTE_PATH, &mpath) < 0) {
-		perror("ESC_IOC_MUTE_PATH (target)");
+	strlcpy(mpath.emp_path, "oes-link-muted", sizeof(mpath.emp_path));
+	mpath.emp_type = OES_MUTE_PATH_LITERAL;
+	mpath.emp_flags = OES_MUTE_PATH_FLAG_TARGET;
+	if (ioctl(fd, OES_IOC_MUTE_PATH, &mpath) < 0) {
+		perror("OES_IOC_MUTE_PATH (target)");
 		close(fd);
 		unlink(srcpath);
 		return (1);
@@ -334,7 +334,7 @@ main(void)
 		unlink(srcpath);
 		return (1);
 	}
-	rc = wait_for_link(fd, pid, "esc-link-muted", 1000, 0);
+	rc = wait_for_link(fd, pid, "oes-link-muted", 1000, 0);
 	(void)waitpid(pid, &status, 0);
 	if (rc != 0) {
 		fprintf(stderr, "target path mute failed\n");

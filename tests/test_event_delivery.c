@@ -1,5 +1,5 @@
 /*
- * ESC event delivery reliability tests.
+ * OES event delivery reliability tests.
  *
  * Tests event delivery under various conditions including
  * event flooding, slow consumers, queue behavior, and
@@ -17,7 +17,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 /*
  * Count events received within a time window.
@@ -42,7 +42,7 @@ drain_events(int fd, int timeout_ms, int *count)
 			break;
 
 		if (poll(&pfd, 1, 50) > 0 && (pfd.revents & POLLIN)) {
-			esc_message_t msg;
+			oes_message_t msg;
 			ssize_t n = read(fd, &msg, sizeof(msg));
 			if (n < 0) {
 				if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -64,24 +64,24 @@ static int
 test_basic_event_delivery(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_EXEC };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_EXEC };
 	pid_t pid;
 	int count;
 
 	printf("  Testing basic event delivery...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -89,9 +89,9 @@ test_basic_event_delivery(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -128,24 +128,24 @@ static int
 test_event_flood(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_OPEN };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_OPEN };
 	pid_t pids[100];
 	int i, count, spawned = 0;
 
 	printf("  Testing event flood (100 rapid processes)...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -153,9 +153,9 @@ test_event_flood(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -206,24 +206,24 @@ static int
 test_slow_consumer(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_OPEN };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_OPEN };
 	pid_t pids[20];
 	int i, count;
 
 	printf("  Testing slow consumer behavior...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -231,9 +231,9 @@ test_slow_consumer(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -277,10 +277,10 @@ static int
 test_event_ordering(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_FORK };
-	esc_message_t msgs[10];
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_FORK };
+	oes_message_t msgs[10];
 	struct pollfd pfd;
 	pid_t pids[10];
 	int i, count = 0;
@@ -288,16 +288,16 @@ test_event_ordering(void)
 
 	printf("  Testing event ordering...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -305,9 +305,9 @@ test_event_ordering(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -366,22 +366,22 @@ static int
 test_read_buffer_sizes(void)
 {
 	int fd;
-	struct esc_mode_args mode;
+	struct oes_mode_args mode;
 	char buf[4096];
 	ssize_t n;
 
 	printf("  Testing read with different buffer sizes...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -397,7 +397,7 @@ test_read_buffer_sizes(void)
 	}
 
 	/* Read with buffer exactly right */
-	n = read(fd, buf, sizeof(esc_message_t));
+	n = read(fd, buf, sizeof(oes_message_t));
 	if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
 		printf("    INFO: exact-size read: no data available\n");
 	} else if (n < 0) {
@@ -428,25 +428,25 @@ static int
 test_poll_behavior(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_EXEC };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_EXEC };
 	struct pollfd pfd;
 	int ret;
 	pid_t pid;
 
 	printf("  Testing poll behavior...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -454,9 +454,9 @@ test_poll_behavior(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -503,25 +503,25 @@ static int
 test_blocking_read(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_EXEC };
-	esc_message_t msg;
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_EXEC };
+	oes_message_t msg;
 	pid_t reader_pid, event_pid;
 	int status;
 
 	printf("  Testing blocking read...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_CLOEXEC);  /* Note: NOT O_NONBLOCK */
+	fd = open("/dev/oes", O_RDWR | O_CLOEXEC);  /* Note: NOT O_NONBLOCK */
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -529,9 +529,9 @@ test_blocking_read(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -580,25 +580,25 @@ static int
 test_subscription_changes(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events1[] = { ESC_EVENT_NOTIFY_EXEC };
-	esc_event_type_t events2[] = { ESC_EVENT_NOTIFY_OPEN, ESC_EVENT_NOTIFY_FORK };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events1[] = { OES_EVENT_NOTIFY_EXEC };
+	oes_event_type_t events2[] = { OES_EVENT_NOTIFY_OPEN, OES_EVENT_NOTIFY_FORK };
 	int count1, count2;
 	pid_t pid;
 
 	printf("  Testing subscription changes...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -607,9 +607,9 @@ test_subscription_changes(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events1;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -631,8 +631,8 @@ test_subscription_changes(void)
 	/* Change subscription to OPEN+FORK */
 	sub.esa_events = events2;
 	sub.esa_count = 2;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -663,22 +663,22 @@ static int
 test_empty_queue_read(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	esc_message_t msg;
+	struct oes_mode_args mode;
+	oes_message_t msg;
 	ssize_t n;
 
 	printf("  Testing read from empty queue...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}

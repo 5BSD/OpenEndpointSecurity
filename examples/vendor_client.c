@@ -4,14 +4,14 @@
  * Copyright (c) 2026 Kory Heard <koryheard@icloud.com>
  * All rights reserved.
  *
- * vendor_client - Example third-party ESC client
+ * vendor_client - Example third-party OES client
  *
  * Demonstrates how a third-party security vendor would:
- * 1. Connect to escd and receive a restricted fd
+ * 1. Connect to oesd and receive a restricted fd
  * 2. Subscribe to events
  * 3. Process events in a loop
  *
- * Note: This client cannot enter AUTH mode because escd
+ * Note: This client cannot enter AUTH mode because oesd
  * restricts the ioctls available on the fd it provides.
  */
 
@@ -27,9 +27,9 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "libesc.h"
+#include "liboes.h"
 
-#define DEFAULT_SOCKET_PATH	"/var/run/escd.sock"
+#define DEFAULT_SOCKET_PATH	"/var/run/oesd.sock"
 
 /*
  * Receive a file descriptor over a Unix socket
@@ -71,10 +71,10 @@ recv_fd(int sock)
 }
 
 /*
- * Connect to escd and get a restricted esc fd
+ * Connect to oesd and get a restricted oes fd
  */
 static int
-connect_to_escd(const char *socket_path)
+connect_to_oesd(const char *socket_path)
 {
 	struct sockaddr_un sun;
 	int sock, fd;
@@ -102,25 +102,25 @@ connect_to_escd(const char *socket_path)
  * Event handler
  */
 static bool
-event_handler(esc_client_t *client __unused, const esc_message_t *msg,
+event_handler(oes_client_t *client __unused, const oes_message_t *msg,
     void *ctx __unused)
 {
 
 	printf("[%s] pid=%d uid=%d comm=%s",
-	    esc_event_name(msg->em_event),
+	    oes_event_name(msg->em_event),
 	    msg->em_process.ep_pid,
 	    msg->em_process.ep_uid,
 	    msg->em_process.ep_comm);
 
 	/* Print file path for file events */
 	switch (msg->em_event) {
-	case ESC_EVENT_NOTIFY_EXEC:
-	case ESC_EVENT_AUTH_EXEC:
+	case OES_EVENT_NOTIFY_EXEC:
+	case OES_EVENT_AUTH_EXEC:
 		if (msg->em_event_data.exec.executable.ef_path[0])
 			printf(" exe=%s", msg->em_event_data.exec.executable.ef_path);
 		break;
-	case ESC_EVENT_NOTIFY_OPEN:
-	case ESC_EVENT_AUTH_OPEN:
+	case OES_EVENT_NOTIFY_OPEN:
+	case OES_EVENT_AUTH_OPEN:
 		if (msg->em_event_data.open.file.ef_path[0])
 			printf(" file=%s", msg->em_event_data.open.file.ef_path);
 		break;
@@ -135,8 +135,8 @@ event_handler(esc_client_t *client __unused, const esc_message_t *msg,
 	 * respond - they're informational only. The system daemon
 	 * handles the actual responses.
 	 *
-	 * If we try to call esc_respond() or esc_set_mode(ESC_MODE_AUTH),
-	 * we'll get ENOTCAPABLE because escd restricted our ioctls.
+	 * If we try to call oes_respond() or oes_set_mode(OES_MODE_AUTH),
+	 * we'll get ENOTCAPABLE because oesd restricted our ioctls.
 	 */
 
 	return (true);  /* Continue processing */
@@ -145,7 +145,7 @@ event_handler(esc_client_t *client __unused, const esc_message_t *msg,
 int
 main(int argc, char *argv[])
 {
-	esc_client_t *client;
+	oes_client_t *client;
 	const char *socket_path = DEFAULT_SOCKET_PATH;
 	int fd;
 	int ch;
@@ -161,25 +161,25 @@ main(int argc, char *argv[])
 		}
 	}
 
-	/* Connect to escd and get restricted fd */
-	printf("Connecting to escd at %s...\n", socket_path);
-	fd = connect_to_escd(socket_path);
+	/* Connect to oesd and get restricted fd */
+	printf("Connecting to oesd at %s...\n", socket_path);
+	fd = connect_to_oesd(socket_path);
 	if (fd < 0)
-		err(1, "connect_to_escd");
+		err(1, "connect_to_oesd");
 
 	printf("Received restricted fd %d\n", fd);
 
 	/* Create client from the received fd */
-	client = esc_client_create_from_fd(fd);
+	client = oes_client_create_from_fd(fd);
 	if (client == NULL)
-		err(1, "esc_client_create_from_fd");
+		err(1, "oes_client_create_from_fd");
 
 	/*
 	 * Try to set AUTH mode - this should fail with ENOTCAPABLE
-	 * because escd restricted our ioctls.
+	 * because oesd restricted our ioctls.
 	 */
 	printf("Attempting to set AUTH mode (should fail)...\n");
-	if (esc_set_mode(client, ESC_MODE_AUTH, 0, 0) < 0) {
+	if (oes_set_mode(client, OES_MODE_AUTH, 0, 0) < 0) {
 		printf("  Failed as expected: %s\n", strerror(errno));
 	} else {
 		printf("  Unexpectedly succeeded!\n");
@@ -187,20 +187,20 @@ main(int argc, char *argv[])
 
 	/* Subscribe to NOTIFY events only (we can't do AUTH) */
 	printf("Subscribing to NOTIFY events...\n");
-	if (esc_subscribe_all(client, false, true) < 0)
-		err(1, "esc_subscribe_all");
+	if (oes_subscribe_all(client, false, true) < 0)
+		err(1, "oes_subscribe_all");
 
 	/* Mute ourselves */
-	if (esc_mute_self(client) < 0)
-		err(1, "esc_mute_self");
+	if (oes_mute_self(client) < 0)
+		err(1, "oes_mute_self");
 
 	printf("Listening for events (Ctrl+C to stop)...\n\n");
 
 	/* Process events */
-	if (esc_dispatch(client, event_handler, NULL) < 0)
-		err(1, "esc_dispatch");
+	if (oes_dispatch(client, event_handler, NULL) < 0)
+		err(1, "oes_dispatch");
 
-	esc_client_destroy(client);
+	oes_client_destroy(client);
 	close(fd);
 
 	return (0);

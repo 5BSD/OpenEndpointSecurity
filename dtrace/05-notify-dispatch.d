@@ -6,29 +6,29 @@
 #endif
 
 BEGIN {
-	printf("esc notify dispatch workflow\n");
+	printf("oes notify dispatch workflow\n");
 }
 
-fbt::esc_generate_vnode_event:entry
+fbt::oes_generate_vnode_event:entry
 /((arg0 & 0x1000) != 0)/
 {
 	notify_gen++;
 	self->notify = 1;
 }
 
-fbt::esc_dispatch_event:entry
+fbt::oes_dispatch_event:entry
 /self->notify/
 {
 	dispatch++;
 }
 
-fbt::esc_event_enqueue:entry
+fbt::oes_event_enqueue:entry
 /self->notify/
 {
 	enqueue++;
 }
 
-fbt::esc_generate_vnode_event:return
+fbt::oes_generate_vnode_event:return
 /self->notify/
 {
 	self->notify = 0;

@@ -1,5 +1,5 @@
 /*
- * ESC unmount event test.
+ * OES unmount event test.
  *
  * Tests NOTIFY_UNMOUNT event by mounting and unmounting a filesystem.
  * Tries tmpfs first, falls back to mdmfs (memory disk).
@@ -19,15 +19,15 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
-#define TEST_MOUNTPOINT	"/tmp/esc_test_mount"
-#define TEST_MDFILE	"/tmp/esc_test_md"
+#define TEST_MOUNTPOINT	"/tmp/oes_test_mount"
+#define TEST_MDFILE	"/tmp/oes_test_md"
 
 static int
 read_events(int fd, int *unmount_seen, const char *expected_path)
 {
-	esc_message_t msg;
+	oes_message_t msg;
 	ssize_t n;
 
 	for (;;) {
@@ -43,7 +43,7 @@ read_events(int fd, int *unmount_seen, const char *expected_path)
 		if ((size_t)n != sizeof(msg))
 			continue;
 
-		if (msg.em_event == ESC_EVENT_NOTIFY_UNMOUNT) {
+		if (msg.em_event == OES_EVENT_NOTIFY_UNMOUNT) {
 			fprintf(stderr, "  got NOTIFY_UNMOUNT: mountpoint=%s fstype=%s\n",
 			    msg.em_event_data.unmount.mountpoint.ef_path,
 			    msg.em_event_data.unmount.fstype);
@@ -62,10 +62,10 @@ int
 main(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = {
-		ESC_EVENT_NOTIFY_UNMOUNT,
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = {
+		OES_EVENT_NOTIFY_UNMOUNT,
 	};
 	int unmount_seen = 0;
 	struct pollfd pfd;
@@ -79,16 +79,16 @@ main(void)
 		return (0);
 	}
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -96,19 +96,19 @@ main(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = sizeof(events) / sizeof(events[0]);
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
 
 	/*
 	 * Clear the default self-mute so we can see our own unmount events.
-	 * (security.esc.default_self_mute=1 would otherwise block them.)
+	 * (security.oes.default_self_mute=1 would otherwise block them.)
 	 */
-	if (ioctl(fd, ESC_IOC_UNMUTE_ALL_PROCESSES, NULL) < 0) {
-		perror("ESC_IOC_UNMUTE_ALL_PROCESSES");
+	if (ioctl(fd, OES_IOC_UNMUTE_ALL_PROCESSES, NULL) < 0) {
+		perror("OES_IOC_UNMUTE_ALL_PROCESSES");
 		close(fd);
 		return (1);
 	}
@@ -173,7 +173,7 @@ main(void)
 			break;
 
 		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			if (read_events(fd, &unmount_seen, "esc_test_mount") < 0) {
+			if (read_events(fd, &unmount_seen, "oes_test_mount") < 0) {
 				rmdir(TEST_MOUNTPOINT);
 				close(fd);
 				return (1);

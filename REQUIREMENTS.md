@@ -1,4 +1,4 @@
-# Endpoint Security Capabilities (esc) - Requirements
+# Open Endpoint Security (OES) - Requirements
 
 ## Stakeholder Requirements
 
@@ -17,7 +17,7 @@ independent handles (capabilities). Each handle can be passed to sandboxed
 processes and restricted using Capsicum rights.
 
 **Acceptance Criteria**:
-- [ ] Each `open("/dev/esc")` creates a new independent client
+- [ ] Each `open("/dev/oes")` creates a new independent client
 - [ ] Client fd can be passed across fork/exec
 - [ ] Client fd can be restricted with `cap_rights_limit()`
 - [ ] Device is CAPENABLED (works in capability mode after open)
@@ -31,12 +31,12 @@ processes and restricted using Capsicum rights.
 **Description**: The timeout for AUTH events must be configurable per-client.
 
 **Acceptance Criteria**:
-- [ ] `ESC_IOC_SET_MODE` ioctl accepts timeout value
+- [ ] `OES_IOC_SET_MODE` ioctl accepts timeout value
 - [ ] Timeout applies to all AUTH events for that client
 - [ ] Default timeout is reasonable (5-30 seconds)
 - [ ] Timeout=0 means use system default
 
-**Design Reference**: DESIGN.md § IOCTLs (ESC_IOC_SET_MODE)
+**Design Reference**: DESIGN.md § IOCTLs (OES_IOC_SET_MODE)
 
 ---
 
@@ -46,11 +46,11 @@ processes and restricted using Capsicum rights.
 client receives events but never blocks kernel operations.
 
 **Acceptance Criteria**:
-- [ ] `ESC_MODE_NOTIFY` mode receives only NOTIFY events
-- [ ] `ESC_MODE_PASSIVE` mode receives AUTH events as NOTIFY (no blocking)
+- [ ] `OES_MODE_NOTIFY` mode receives only NOTIFY events
+- [ ] `OES_MODE_PASSIVE` mode receives AUTH events as NOTIFY (no blocking)
 - [ ] Passive mode client cannot accidentally block system operations
 
-**Design Reference**: DESIGN.md § IOCTLs (ESC_IOC_SET_MODE), § Event Flow
+**Design Reference**: DESIGN.md § IOCTLs (OES_IOC_SET_MODE), § Event Flow
 
 ---
 
@@ -90,14 +90,14 @@ to wait for incoming events.
 muting so the mute list becomes an allowlist.
 
 **Acceptance Criteria**:
-- [ ] `ESC_IOC_MUTE_PROCESS` mutes events from a process token
-- [ ] `ESC_MUTE_SELF` mutes the calling process
-- [ ] `ESC_IOC_UNMUTE_PROCESS` restores events for the process
-- [ ] `ESC_IOC_MUTE_PATH` mutes events by path (literal/prefix)
-- [ ] `ESC_IOC_UNMUTE_PATH` removes path mutes
-- [ ] `ESC_MUTE_PATH_FLAG_TARGET` applies to target paths (rename/link)
-- [ ] `ESC_IOC_SET_MUTE_INVERT` flips muting to allowlist behavior
-- [ ] `ESC_IOC_GET_MUTE_INVERT` reports current inversion state
+- [ ] `OES_IOC_MUTE_PROCESS` mutes events from a process token
+- [ ] `OES_MUTE_SELF` mutes the calling process
+- [ ] `OES_IOC_UNMUTE_PROCESS` restores events for the process
+- [ ] `OES_IOC_MUTE_PATH` mutes events by path (literal/prefix)
+- [ ] `OES_IOC_UNMUTE_PATH` removes path mutes
+- [ ] `OES_MUTE_PATH_FLAG_TARGET` applies to target paths (rename/link)
+- [ ] `OES_IOC_SET_MUTE_INVERT` flips muting to allowlist behavior
+- [ ] `OES_IOC_GET_MUTE_INVERT` reports current inversion state
 
 **Design Reference**: DESIGN.md § IOCTLs (Muting)
 
@@ -125,7 +125,7 @@ independent subscriptions and state.
 **Description**: Clients must be able to subscribe to specific event types.
 
 **Acceptance Criteria**:
-- [ ] `ESC_IOC_SUBSCRIBE` ioctl to select event types
+- [ ] `OES_IOC_SUBSCRIBE` ioctl to select event types
 - [ ] Can subscribe to AUTH events only if in AUTH mode
 - [ ] Can add to or replace subscriptions
 - [ ] Unsubscribed events are not delivered
@@ -138,7 +138,7 @@ independent subscriptions and state.
 with ALLOW or DENY.
 
 **Acceptance Criteria**:
-- [ ] `write()` with `esc_response_t` sends response
+- [ ] `write()` with `oes_response_t` sends response
 - [ ] Response includes message ID for correlation
 - [ ] Late responses (after timeout) are ignored
 - [ ] Invalid message ID returns error
@@ -151,8 +151,8 @@ with ALLOW or DENY.
 to prevent recursion when the security daemon triggers events.
 
 **Acceptance Criteria**:
-- [ ] `ESC_IOC_MUTE_PROCESS` silences events from token's process
-- [ ] `ESC_MUTE_SELF` silences events from calling process
+- [ ] `OES_IOC_MUTE_PROCESS` silences events from token's process
+- [ ] `OES_MUTE_SELF` silences events from calling process
 - [ ] Muted processes don't generate events for that client
 - [ ] Can unmute previously muted processes
 - [ ] Mute inversion makes the mute list act as an allowlist
@@ -176,7 +176,7 @@ to prevent recursion when the security daemon triggers events.
 **Description**: Appropriate privileges required for different operations.
 
 **Acceptance Criteria**:
-- [ ] Opening `/dev/esc` requires specific privilege
+- [ ] Opening `/dev/oes` requires specific privilege
 - [ ] AUTH mode requires elevated privilege
 - [ ] Capsicum rights restrict operations after open
 
@@ -273,7 +273,7 @@ performance.
 
 ### TC-D04: Process Muting
 - TC-D04-01: Muted process stops events for that client
-- TC-D04-02: ESC_MUTE_SELF suppresses self events
+- TC-D04-02: OES_MUTE_SELF suppresses self events
 - TC-D04-03: Unmute restores events
 - TC-D04-04: Mute inversion allowlists muted process
 - TC-D04-05: Path muting suppresses matching events
@@ -286,7 +286,7 @@ performance.
 |------|------------|
 | AUTH event | Event requiring authorization response before operation proceeds |
 | NOTIFY event | Informational event that doesn't block operations |
-| Client | An open handle to /dev/esc |
+| Client | An open handle to /dev/oes |
 | Token | Lightweight handle that identifies a process or file |
 | Muting | Suppressing events from a specific process |
 | Mute inversion | Muting logic where the mute list becomes an allowlist |

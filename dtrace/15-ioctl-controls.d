@@ -6,10 +6,10 @@
 #endif
 
 BEGIN {
-	printf("esc ioctl helper coverage\n");
+	printf("oes ioctl helper coverage\n");
 }
 
-fbt::esc_ioctl_*:entry
+fbt::oes_ioctl_*:entry
 {
 	helper++;
 	@byioctl[probefunc] = count();

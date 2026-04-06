@@ -1,5 +1,5 @@
 /*
- * ESC stress and concurrency tests.
+ * OES stress and concurrency tests.
  *
  * Tests many concurrent clients, rapid subscribe/unsubscribe, event floods.
  */
@@ -16,7 +16,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 #define NUM_CLIENTS	20
 #define NUM_ITERATIONS	100
@@ -25,18 +25,18 @@ static int
 test_many_clients(void)
 {
 	int fds[NUM_CLIENTS];
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_EXEC };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_EXEC };
 	int i;
 
 	printf("  Testing %d concurrent clients...\n", NUM_CLIENTS);
 
 	/* Open many clients */
 	for (i = 0; i < NUM_CLIENTS; i++) {
-		fds[i] = open("/dev/esc", O_RDWR | O_NONBLOCK);
+		fds[i] = open("/dev/oes", O_RDWR | O_NONBLOCK);
 		if (fds[i] < 0) {
-			perror("open /dev/esc");
+			perror("open /dev/oes");
 			while (--i >= 0)
 				close(fds[i]);
 			return (1);
@@ -46,9 +46,9 @@ test_many_clients(void)
 	/* Configure all as NOTIFY */
 	for (i = 0; i < NUM_CLIENTS; i++) {
 		memset(&mode, 0, sizeof(mode));
-		mode.ema_mode = ESC_MODE_NOTIFY;
-		if (ioctl(fds[i], ESC_IOC_SET_MODE, &mode) < 0) {
-			perror("ESC_IOC_SET_MODE");
+		mode.ema_mode = OES_MODE_NOTIFY;
+		if (ioctl(fds[i], OES_IOC_SET_MODE, &mode) < 0) {
+			perror("OES_IOC_SET_MODE");
 			for (int j = 0; j < NUM_CLIENTS; j++)
 				close(fds[j]);
 			return (1);
@@ -60,9 +60,9 @@ test_many_clients(void)
 		memset(&sub, 0, sizeof(sub));
 		sub.esa_events = events;
 		sub.esa_count = 1;
-		sub.esa_flags = ESC_SUB_REPLACE;
-		if (ioctl(fds[i], ESC_IOC_SUBSCRIBE, &sub) < 0) {
-			perror("ESC_IOC_SUBSCRIBE");
+		sub.esa_flags = OES_SUB_REPLACE;
+		if (ioctl(fds[i], OES_IOC_SUBSCRIBE, &sub) < 0) {
+			perror("OES_IOC_SUBSCRIBE");
 			for (int j = 0; j < NUM_CLIENTS; j++)
 				close(fds[j]);
 			return (1);
@@ -81,25 +81,25 @@ static int
 test_rapid_subscribe_unsubscribe(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events1[] = { ESC_EVENT_NOTIFY_EXEC };
-	esc_event_type_t events2[] = { ESC_EVENT_NOTIFY_FORK, ESC_EVENT_NOTIFY_EXIT };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events1[] = { OES_EVENT_NOTIFY_EXEC };
+	oes_event_type_t events2[] = { OES_EVENT_NOTIFY_FORK, OES_EVENT_NOTIFY_EXIT };
 	int i;
 
 	printf("  Testing rapid subscribe/unsubscribe (%d iterations)...\n",
 	    NUM_ITERATIONS);
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -109,9 +109,9 @@ test_rapid_subscribe_unsubscribe(void)
 		memset(&sub, 0, sizeof(sub));
 		sub.esa_events = events1;
 		sub.esa_count = 1;
-		sub.esa_flags = ESC_SUB_REPLACE;
-		if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-			perror("ESC_IOC_SUBSCRIBE (1)");
+		sub.esa_flags = OES_SUB_REPLACE;
+		if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+			perror("OES_IOC_SUBSCRIBE (1)");
 			close(fd);
 			return (1);
 		}
@@ -119,8 +119,8 @@ test_rapid_subscribe_unsubscribe(void)
 		/* Subscribe to events2 (replace) */
 		sub.esa_events = events2;
 		sub.esa_count = 2;
-		if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-			perror("ESC_IOC_SUBSCRIBE (2)");
+		if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+			perror("OES_IOC_SUBSCRIBE (2)");
 			close(fd);
 			return (1);
 		}
@@ -128,9 +128,9 @@ test_rapid_subscribe_unsubscribe(void)
 		/* Add events1 (using ADD flag) */
 		sub.esa_events = events1;
 		sub.esa_count = 1;
-		sub.esa_flags = ESC_SUB_ADD;
-		if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-			perror("ESC_IOC_SUBSCRIBE (add)");
+		sub.esa_flags = OES_SUB_ADD;
+		if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+			perror("OES_IOC_SUBSCRIBE (add)");
 			close(fd);
 			return (1);
 		}
@@ -138,9 +138,9 @@ test_rapid_subscribe_unsubscribe(void)
 		/* Clear subscriptions by replacing with empty (events2 only) */
 		sub.esa_events = events2;
 		sub.esa_count = 2;
-		sub.esa_flags = ESC_SUB_REPLACE;
-		if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-			perror("ESC_IOC_SUBSCRIBE (clear)");
+		sub.esa_flags = OES_SUB_REPLACE;
+		if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+			perror("OES_IOC_SUBSCRIBE (clear)");
 			close(fd);
 			return (1);
 		}
@@ -155,24 +155,24 @@ static int
 test_rapid_mute_unmute(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	struct esc_mute_args mute;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_EXEC };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	struct oes_mute_args mute;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_EXEC };
 	int i;
 
 	printf("  Testing rapid mute/unmute (%d iterations)...\n", NUM_ITERATIONS);
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -180,9 +180,9 @@ test_rapid_mute_unmute(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -190,16 +190,16 @@ test_rapid_mute_unmute(void)
 	for (i = 0; i < NUM_ITERATIONS; i++) {
 		/* Self-mute */
 		memset(&mute, 0, sizeof(mute));
-		mute.emu_flags = ESC_MUTE_SELF;
-		if (ioctl(fd, ESC_IOC_MUTE_PROCESS, &mute) < 0) {
-			perror("ESC_IOC_MUTE_PROCESS");
+		mute.emu_flags = OES_MUTE_SELF;
+		if (ioctl(fd, OES_IOC_MUTE_PROCESS, &mute) < 0) {
+			perror("OES_IOC_MUTE_PROCESS");
 			close(fd);
 			return (1);
 		}
 
 		/* Self-unmute */
-		if (ioctl(fd, ESC_IOC_UNMUTE_PROCESS, &mute) < 0) {
-			perror("ESC_IOC_UNMUTE_PROCESS");
+		if (ioctl(fd, OES_IOC_UNMUTE_PROCESS, &mute) < 0) {
+			perror("OES_IOC_UNMUTE_PROCESS");
 			close(fd);
 			return (1);
 		}
@@ -215,20 +215,20 @@ client_thread(void *arg)
 {
 	int *result = arg;
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_EXEC };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_EXEC };
 	int i;
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
 		*result = 1;
 		return (NULL);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
 		close(fd);
 		*result = 1;
 		return (NULL);
@@ -236,13 +236,13 @@ client_thread(void *arg)
 
 	/* Rapidly subscribe/read */
 	for (i = 0; i < 50; i++) {
-		esc_message_t msg;
+		oes_message_t msg;
 
 		memset(&sub, 0, sizeof(sub));
 		sub.esa_events = events;
 		sub.esa_count = 1;
-		sub.esa_flags = ESC_SUB_REPLACE;
-		(void)ioctl(fd, ESC_IOC_SUBSCRIBE, &sub);
+		sub.esa_flags = OES_SUB_REPLACE;
+		(void)ioctl(fd, OES_IOC_SUBSCRIBE, &sub);
 
 		/* Try to read (non-blocking) */
 		(void)read(fd, &msg, sizeof(msg));
@@ -291,24 +291,24 @@ static int
 test_fork_stress(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_FORK, ESC_EVENT_NOTIFY_EXIT };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_FORK, OES_EVENT_NOTIFY_EXIT };
 	int i;
 	pid_t pids[20];
 
 	printf("  Testing rapid fork/exit (20 children)...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -316,9 +316,9 @@ test_fork_stress(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 2;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -343,7 +343,7 @@ test_fork_stress(void)
 
 	/* Drain events */
 	for (i = 0; i < 100; i++) {
-		esc_message_t msg;
+		oes_message_t msg;
 		ssize_t n = read(fd, &msg, sizeof(msg));
 		if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
 			break;

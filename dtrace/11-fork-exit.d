@@ -6,20 +6,20 @@
 #endif
 
 BEGIN {
-	printf("esc fork/exit workflow\n");
+	printf("oes fork/exit workflow\n");
 }
 
-fbt::esc_proc_event_fork:entry
+fbt::oes_proc_event_fork:entry
 {
 	fork_evt++;
 }
 
-fbt::esc_proc_event_exit:entry
+fbt::oes_proc_event_exit:entry
 {
 	exit_evt++;
 }
 
-fbt::esc_deliver_notify_nosleep:entry
+fbt::oes_deliver_notify_nosleep:entry
 {
 	deliver++;
 }

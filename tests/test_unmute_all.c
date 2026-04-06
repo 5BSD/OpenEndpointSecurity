@@ -1,8 +1,8 @@
 /*
- * ESC unmute-all test.
+ * OES unmute-all test.
  *
- * Tests ESC_IOC_UNMUTE_ALL_PROCESSES, ESC_IOC_UNMUTE_ALL_PATHS,
- * and ESC_IOC_UNMUTE_ALL_TARGET_PATHS.
+ * Tests OES_IOC_UNMUTE_ALL_PROCESSES, OES_IOC_UNMUTE_ALL_PATHS,
+ * and OES_IOC_UNMUTE_ALL_TARGET_PATHS.
  */
 #include <sys/ioctl.h>
 #include <sys/poll.h>
@@ -16,11 +16,11 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 static int
-wait_for_event(int fd, pid_t pid, esc_event_type_t event, int timeout_ms,
-    esc_message_t *out)
+wait_for_event(int fd, pid_t pid, oes_event_type_t event, int timeout_ms,
+    oes_message_t *out)
 {
 	struct pollfd pfd;
 	struct timespec start;
@@ -40,7 +40,7 @@ wait_for_event(int fd, pid_t pid, esc_event_type_t event, int timeout_ms,
 			break;
 
 		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			esc_message_t msg;
+			oes_message_t msg;
 			ssize_t n = read(fd, &msg, sizeof(msg));
 			if (n < 0) {
 				if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -67,31 +67,31 @@ int
 main(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	struct esc_mute_args mute_proc;
-	struct esc_mute_path_args mute_path;
-	struct esc_get_muted_processes_args get_procs;
-	struct esc_get_muted_paths_args get_paths;
-	struct esc_muted_process_entry proc_entries[16];
-	struct esc_muted_path_entry path_entries[16];
-	esc_event_type_t events[] = {
-		ESC_EVENT_NOTIFY_OPEN,
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	struct oes_mute_args mute_proc;
+	struct oes_mute_path_args mute_path;
+	struct oes_get_muted_processes_args get_procs;
+	struct oes_get_muted_paths_args get_paths;
+	struct oes_muted_process_entry proc_entries[16];
+	struct oes_muted_path_entry path_entries[16];
+	oes_event_type_t events[] = {
+		OES_EVENT_NOTIFY_OPEN,
 	};
 	int ret;
 
 	printf("Testing unmute-all...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -99,26 +99,26 @@ main(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = sizeof(events) / sizeof(events[0]);
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
 
-	/* ========== Test ESC_IOC_UNMUTE_ALL_PROCESSES ========== */
+	/* ========== Test OES_IOC_UNMUTE_ALL_PROCESSES ========== */
 
 	/* Mute self */
 	memset(&mute_proc, 0, sizeof(mute_proc));
-	mute_proc.emu_flags = ESC_MUTE_SELF;
-	if (ioctl(fd, ESC_IOC_MUTE_PROCESS, &mute_proc) < 0) {
-		perror("ESC_IOC_MUTE_PROCESS");
+	mute_proc.emu_flags = OES_MUTE_SELF;
+	if (ioctl(fd, OES_IOC_MUTE_PROCESS, &mute_proc) < 0) {
+		perror("OES_IOC_MUTE_PROCESS");
 		close(fd);
 		return (1);
 	}
 
 	/* Verify self is muted */
-	ret = wait_for_event(fd, getpid(), ESC_EVENT_NOTIFY_OPEN, 500, NULL);
+	ret = wait_for_event(fd, getpid(), OES_EVENT_NOTIFY_OPEN, 500, NULL);
 	(void)open("/etc/passwd", O_RDONLY);
 	if (ret == 0) {
 		fprintf(stderr, "FAIL: self not muted\n");
@@ -127,8 +127,8 @@ main(void)
 	}
 
 	/* Unmute all processes */
-	if (ioctl(fd, ESC_IOC_UNMUTE_ALL_PROCESSES, NULL) < 0) {
-		perror("ESC_IOC_UNMUTE_ALL_PROCESSES");
+	if (ioctl(fd, OES_IOC_UNMUTE_ALL_PROCESSES, NULL) < 0) {
+		perror("OES_IOC_UNMUTE_ALL_PROCESSES");
 		close(fd);
 		return (1);
 	}
@@ -137,8 +137,8 @@ main(void)
 	memset(&get_procs, 0, sizeof(get_procs));
 	get_procs.egmp_entries = proc_entries;
 	get_procs.egmp_count = 16;
-	if (ioctl(fd, ESC_IOC_GET_MUTED_PROCESSES, &get_procs) < 0) {
-		perror("ESC_IOC_GET_MUTED_PROCESSES");
+	if (ioctl(fd, OES_IOC_GET_MUTED_PROCESSES, &get_procs) < 0) {
+		perror("OES_IOC_GET_MUTED_PROCESSES");
 		close(fd);
 		return (1);
 	}
@@ -149,11 +149,11 @@ main(void)
 		close(fd);
 		return (1);
 	}
-	printf("  PASS: ESC_IOC_UNMUTE_ALL_PROCESSES cleared all muted processes\n");
+	printf("  PASS: OES_IOC_UNMUTE_ALL_PROCESSES cleared all muted processes\n");
 
 	/* Verify events now delivered */
 	(void)open("/etc/hosts", O_RDONLY);
-	ret = wait_for_event(fd, getpid(), ESC_EVENT_NOTIFY_OPEN, 1000, NULL);
+	ret = wait_for_event(fd, getpid(), OES_EVENT_NOTIFY_OPEN, 1000, NULL);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: OPEN not delivered after unmute-all\n");
 		close(fd);
@@ -161,28 +161,28 @@ main(void)
 	}
 	printf("  PASS: events delivered after unmute-all processes\n");
 
-	/* ========== Test ESC_IOC_UNMUTE_ALL_PATHS ========== */
+	/* ========== Test OES_IOC_UNMUTE_ALL_PATHS ========== */
 
 	/* Mute multiple paths */
 	memset(&mute_path, 0, sizeof(mute_path));
 	strlcpy(mute_path.emp_path, "/etc/passwd", sizeof(mute_path.emp_path));
-	mute_path.emp_type = ESC_MUTE_PATH_LITERAL;
-	if (ioctl(fd, ESC_IOC_MUTE_PATH, &mute_path) < 0) {
-		perror("ESC_IOC_MUTE_PATH");
+	mute_path.emp_type = OES_MUTE_PATH_LITERAL;
+	if (ioctl(fd, OES_IOC_MUTE_PATH, &mute_path) < 0) {
+		perror("OES_IOC_MUTE_PATH");
 		close(fd);
 		return (1);
 	}
 
 	strlcpy(mute_path.emp_path, "/etc/hosts", sizeof(mute_path.emp_path));
-	if (ioctl(fd, ESC_IOC_MUTE_PATH, &mute_path) < 0) {
-		perror("ESC_IOC_MUTE_PATH");
+	if (ioctl(fd, OES_IOC_MUTE_PATH, &mute_path) < 0) {
+		perror("OES_IOC_MUTE_PATH");
 		close(fd);
 		return (1);
 	}
 
 	strlcpy(mute_path.emp_path, "/etc/group", sizeof(mute_path.emp_path));
-	if (ioctl(fd, ESC_IOC_MUTE_PATH, &mute_path) < 0) {
-		perror("ESC_IOC_MUTE_PATH");
+	if (ioctl(fd, OES_IOC_MUTE_PATH, &mute_path) < 0) {
+		perror("OES_IOC_MUTE_PATH");
 		close(fd);
 		return (1);
 	}
@@ -191,8 +191,8 @@ main(void)
 	memset(&get_paths, 0, sizeof(get_paths));
 	get_paths.egmpa_entries = path_entries;
 	get_paths.egmpa_count = 16;
-	if (ioctl(fd, ESC_IOC_GET_MUTED_PATHS, &get_paths) < 0) {
-		perror("ESC_IOC_GET_MUTED_PATHS");
+	if (ioctl(fd, OES_IOC_GET_MUTED_PATHS, &get_paths) < 0) {
+		perror("OES_IOC_GET_MUTED_PATHS");
 		close(fd);
 		return (1);
 	}
@@ -206,8 +206,8 @@ main(void)
 	printf("  Added %zu muted paths\n", get_paths.egmpa_actual);
 
 	/* Unmute all paths */
-	if (ioctl(fd, ESC_IOC_UNMUTE_ALL_PATHS, NULL) < 0) {
-		perror("ESC_IOC_UNMUTE_ALL_PATHS");
+	if (ioctl(fd, OES_IOC_UNMUTE_ALL_PATHS, NULL) < 0) {
+		perror("OES_IOC_UNMUTE_ALL_PATHS");
 		close(fd);
 		return (1);
 	}
@@ -216,8 +216,8 @@ main(void)
 	memset(&get_paths, 0, sizeof(get_paths));
 	get_paths.egmpa_entries = path_entries;
 	get_paths.egmpa_count = 16;
-	if (ioctl(fd, ESC_IOC_GET_MUTED_PATHS, &get_paths) < 0) {
-		perror("ESC_IOC_GET_MUTED_PATHS");
+	if (ioctl(fd, OES_IOC_GET_MUTED_PATHS, &get_paths) < 0) {
+		perror("OES_IOC_GET_MUTED_PATHS");
 		close(fd);
 		return (1);
 	}
@@ -228,24 +228,24 @@ main(void)
 		close(fd);
 		return (1);
 	}
-	printf("  PASS: ESC_IOC_UNMUTE_ALL_PATHS cleared all muted paths\n");
+	printf("  PASS: OES_IOC_UNMUTE_ALL_PATHS cleared all muted paths\n");
 
-	/* ========== Test ESC_IOC_UNMUTE_ALL_TARGET_PATHS ========== */
+	/* ========== Test OES_IOC_UNMUTE_ALL_TARGET_PATHS ========== */
 
 	/* Mute target paths */
 	memset(&mute_path, 0, sizeof(mute_path));
 	strlcpy(mute_path.emp_path, "/tmp/target1", sizeof(mute_path.emp_path));
-	mute_path.emp_type = ESC_MUTE_PATH_LITERAL;
-	mute_path.emp_flags = ESC_MUTE_PATH_FLAG_TARGET;
-	if (ioctl(fd, ESC_IOC_MUTE_PATH, &mute_path) < 0) {
-		perror("ESC_IOC_MUTE_PATH (target)");
+	mute_path.emp_type = OES_MUTE_PATH_LITERAL;
+	mute_path.emp_flags = OES_MUTE_PATH_FLAG_TARGET;
+	if (ioctl(fd, OES_IOC_MUTE_PATH, &mute_path) < 0) {
+		perror("OES_IOC_MUTE_PATH (target)");
 		close(fd);
 		return (1);
 	}
 
 	strlcpy(mute_path.emp_path, "/tmp/target2", sizeof(mute_path.emp_path));
-	if (ioctl(fd, ESC_IOC_MUTE_PATH, &mute_path) < 0) {
-		perror("ESC_IOC_MUTE_PATH (target)");
+	if (ioctl(fd, OES_IOC_MUTE_PATH, &mute_path) < 0) {
+		perror("OES_IOC_MUTE_PATH (target)");
 		close(fd);
 		return (1);
 	}
@@ -253,10 +253,10 @@ main(void)
 	/* Also add a regular path mute to verify it's not cleared */
 	memset(&mute_path, 0, sizeof(mute_path));
 	strlcpy(mute_path.emp_path, "/etc/passwd", sizeof(mute_path.emp_path));
-	mute_path.emp_type = ESC_MUTE_PATH_LITERAL;
+	mute_path.emp_type = OES_MUTE_PATH_LITERAL;
 	mute_path.emp_flags = 0; /* Not target */
-	if (ioctl(fd, ESC_IOC_MUTE_PATH, &mute_path) < 0) {
-		perror("ESC_IOC_MUTE_PATH");
+	if (ioctl(fd, OES_IOC_MUTE_PATH, &mute_path) < 0) {
+		perror("OES_IOC_MUTE_PATH");
 		close(fd);
 		return (1);
 	}
@@ -265,9 +265,9 @@ main(void)
 	memset(&get_paths, 0, sizeof(get_paths));
 	get_paths.egmpa_entries = path_entries;
 	get_paths.egmpa_count = 16;
-	get_paths.egmpa_flags = ESC_MUTE_PATH_FLAG_TARGET;
-	if (ioctl(fd, ESC_IOC_GET_MUTED_PATHS, &get_paths) < 0) {
-		perror("ESC_IOC_GET_MUTED_PATHS (target)");
+	get_paths.egmpa_flags = OES_MUTE_PATH_FLAG_TARGET;
+	if (ioctl(fd, OES_IOC_GET_MUTED_PATHS, &get_paths) < 0) {
+		perror("OES_IOC_GET_MUTED_PATHS (target)");
 		close(fd);
 		return (1);
 	}
@@ -281,8 +281,8 @@ main(void)
 	printf("  Added %zu muted target paths\n", get_paths.egmpa_actual);
 
 	/* Unmute all target paths */
-	if (ioctl(fd, ESC_IOC_UNMUTE_ALL_TARGET_PATHS, NULL) < 0) {
-		perror("ESC_IOC_UNMUTE_ALL_TARGET_PATHS");
+	if (ioctl(fd, OES_IOC_UNMUTE_ALL_TARGET_PATHS, NULL) < 0) {
+		perror("OES_IOC_UNMUTE_ALL_TARGET_PATHS");
 		close(fd);
 		return (1);
 	}
@@ -291,9 +291,9 @@ main(void)
 	memset(&get_paths, 0, sizeof(get_paths));
 	get_paths.egmpa_entries = path_entries;
 	get_paths.egmpa_count = 16;
-	get_paths.egmpa_flags = ESC_MUTE_PATH_FLAG_TARGET;
-	if (ioctl(fd, ESC_IOC_GET_MUTED_PATHS, &get_paths) < 0) {
-		perror("ESC_IOC_GET_MUTED_PATHS (target)");
+	get_paths.egmpa_flags = OES_MUTE_PATH_FLAG_TARGET;
+	if (ioctl(fd, OES_IOC_GET_MUTED_PATHS, &get_paths) < 0) {
+		perror("OES_IOC_GET_MUTED_PATHS (target)");
 		close(fd);
 		return (1);
 	}
@@ -304,15 +304,15 @@ main(void)
 		close(fd);
 		return (1);
 	}
-	printf("  PASS: ESC_IOC_UNMUTE_ALL_TARGET_PATHS cleared target paths\n");
+	printf("  PASS: OES_IOC_UNMUTE_ALL_TARGET_PATHS cleared target paths\n");
 
 	/* Verify regular paths still exist */
 	memset(&get_paths, 0, sizeof(get_paths));
 	get_paths.egmpa_entries = path_entries;
 	get_paths.egmpa_count = 16;
 	get_paths.egmpa_flags = 0; /* Regular paths */
-	if (ioctl(fd, ESC_IOC_GET_MUTED_PATHS, &get_paths) < 0) {
-		perror("ESC_IOC_GET_MUTED_PATHS");
+	if (ioctl(fd, OES_IOC_GET_MUTED_PATHS, &get_paths) < 0) {
+		perror("OES_IOC_GET_MUTED_PATHS");
 		close(fd);
 		return (1);
 	}
@@ -325,8 +325,8 @@ main(void)
 	printf("  PASS: regular paths preserved after unmute-all-target-paths\n");
 
 	/* Cleanup */
-	if (ioctl(fd, ESC_IOC_UNMUTE_ALL_PATHS, NULL) < 0) {
-		perror("ESC_IOC_UNMUTE_ALL_PATHS (cleanup)");
+	if (ioctl(fd, OES_IOC_UNMUTE_ALL_PATHS, NULL) < 0) {
+		perror("OES_IOC_UNMUTE_ALL_PATHS (cleanup)");
 	}
 
 	close(fd);

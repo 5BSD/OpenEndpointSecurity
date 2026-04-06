@@ -6,26 +6,26 @@
 #endif
 
 BEGIN {
-	printf("esc rename workflow\n");
+	printf("oes rename workflow\n");
 }
 
-fbt::esc_rename_cache_store:entry
+fbt::oes_rename_cache_store:entry
 {
 	store++;
 }
 
-fbt::esc_rename_cache_take:entry
+fbt::oes_rename_cache_take:entry
 {
 	take++;
 }
 
-fbt::esc_generate_vnode_event:entry
+fbt::oes_generate_vnode_event:entry
 /(arg0 == 0x0005)/
 {
 	rename_auth++;
 }
 
-fbt::esc_generate_vnode_event:entry
+fbt::oes_generate_vnode_event:entry
 /(arg0 == 0x1008)/
 {
 	rename_notify++;

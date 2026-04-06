@@ -1,5 +1,5 @@
 /*
- * ESC AUTH response edge case tests.
+ * OES AUTH response edge case tests.
  *
  * Tests various AUTH response scenarios including flags responses,
  * response ordering, and concurrent AUTH handling.
@@ -17,7 +17,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 /*
  * Test basic AUTH ALLOW response.
@@ -26,11 +26,11 @@ static int
 test_auth_allow(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_AUTH_EXEC };
-	esc_message_t msg;
-	esc_response_t resp;
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_AUTH_EXEC };
+	oes_message_t msg;
+	oes_response_t resp;
 	struct pollfd pfd;
 	pid_t pid;
 	ssize_t n;
@@ -38,16 +38,16 @@ test_auth_allow(void)
 
 	printf("  Testing AUTH ALLOW response...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_AUTH;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_AUTH;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -55,9 +55,9 @@ test_auth_allow(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -79,10 +79,10 @@ test_auth_allow(void)
 
 	if (poll(&pfd, 1, 3000) > 0 && (pfd.revents & POLLIN)) {
 		n = read(fd, &msg, sizeof(msg));
-		if (n == sizeof(msg) && msg.em_event == ESC_EVENT_AUTH_EXEC) {
+		if (n == sizeof(msg) && msg.em_event == OES_EVENT_AUTH_EXEC) {
 			memset(&resp, 0, sizeof(resp));
 			resp.er_id = msg.em_id;
-			resp.er_result = ESC_AUTH_ALLOW;
+			resp.er_result = OES_AUTH_ALLOW;
 
 			n = write(fd, &resp, sizeof(resp));
 			if (n != sizeof(resp)) {
@@ -113,11 +113,11 @@ static int
 test_auth_deny(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_AUTH_EXEC };
-	esc_message_t msg;
-	esc_response_t resp;
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_AUTH_EXEC };
+	oes_message_t msg;
+	oes_response_t resp;
 	struct pollfd pfd;
 	pid_t pid;
 	ssize_t n;
@@ -125,16 +125,16 @@ test_auth_deny(void)
 
 	printf("  Testing AUTH DENY response...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_AUTH;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_AUTH;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -142,9 +142,9 @@ test_auth_deny(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -168,10 +168,10 @@ test_auth_deny(void)
 
 	if (poll(&pfd, 1, 3000) > 0 && (pfd.revents & POLLIN)) {
 		n = read(fd, &msg, sizeof(msg));
-		if (n == sizeof(msg) && msg.em_event == ESC_EVENT_AUTH_EXEC) {
+		if (n == sizeof(msg) && msg.em_event == OES_EVENT_AUTH_EXEC) {
 			memset(&resp, 0, sizeof(resp));
 			resp.er_id = msg.em_id;
-			resp.er_result = ESC_AUTH_DENY;
+			resp.er_result = OES_AUTH_DENY;
 
 			n = write(fd, &resp, sizeof(resp));
 			if (n != sizeof(resp)) {
@@ -199,27 +199,27 @@ static int
 test_auth_flags_response(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_AUTH_OPEN };
-	esc_message_t msg;
-	esc_response_flags_t resp;
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_AUTH_OPEN };
+	oes_message_t msg;
+	oes_response_flags_t resp;
 	struct pollfd pfd;
 	pid_t pid;
 	ssize_t n;
 
 	printf("  Testing flags-based AUTH response...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_AUTH;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_AUTH;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -227,9 +227,9 @@ test_auth_flags_response(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -243,13 +243,13 @@ test_auth_flags_response(void)
 
 	if (pid == 0) {
 		/* Child - try to open a file for R/W */
-		int tmpfd = open("/tmp/esc_test_flags", O_CREAT | O_RDWR, 0644);
+		int tmpfd = open("/tmp/oes_test_flags", O_CREAT | O_RDWR, 0644);
 		if (tmpfd >= 0) {
 			/* Try to write - may fail if downgraded to RO */
 			(void)write(tmpfd, "test", 4);
 			close(tmpfd);
 		}
-		unlink("/tmp/esc_test_flags");
+		unlink("/tmp/oes_test_flags");
 		_exit(0);
 	}
 
@@ -258,11 +258,11 @@ test_auth_flags_response(void)
 
 	if (poll(&pfd, 1, 3000) > 0 && (pfd.revents & POLLIN)) {
 		n = read(fd, &msg, sizeof(msg));
-		if (n == sizeof(msg) && msg.em_event == ESC_EVENT_AUTH_OPEN) {
+		if (n == sizeof(msg) && msg.em_event == OES_EVENT_AUTH_OPEN) {
 			/* Respond with flags - allow only read */
 			memset(&resp, 0, sizeof(resp));
 			resp.erf_id = msg.em_id;
-			resp.erf_result = ESC_AUTH_ALLOW;
+			resp.erf_result = OES_AUTH_ALLOW;
 			resp.erf_allowed_flags = O_RDONLY;
 			resp.erf_denied_flags = O_WRONLY | O_RDWR;
 
@@ -271,10 +271,10 @@ test_auth_flags_response(void)
 				printf("    INFO: flags response write: %s\n",
 				    strerror(errno));
 				/* Fall back to simple response */
-				esc_response_t simple;
+				oes_response_t simple;
 				memset(&simple, 0, sizeof(simple));
 				simple.er_id = msg.em_id;
-				simple.er_result = ESC_AUTH_ALLOW;
+				simple.er_result = OES_AUTH_ALLOW;
 				(void)write(fd, &simple, sizeof(simple));
 			}
 		}
@@ -294,27 +294,27 @@ static int
 test_out_of_order_responses(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_AUTH_OPEN };
-	esc_message_t msgs[3];
-	esc_response_t resp;
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_AUTH_OPEN };
+	oes_message_t msgs[3];
+	oes_response_t resp;
 	struct pollfd pfd;
 	pid_t pids[3];
 	int i, msg_count = 0;
 
 	printf("  Testing out-of-order AUTH responses...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_AUTH;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_AUTH;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -322,9 +322,9 @@ test_out_of_order_responses(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -338,7 +338,7 @@ test_out_of_order_responses(void)
 		}
 		if (pids[i] == 0) {
 			char path[64];
-			snprintf(path, sizeof(path), "/tmp/esc_ooo_test_%d", i);
+			snprintf(path, sizeof(path), "/tmp/oes_ooo_test_%d", i);
 			int tmpfd = open(path, O_CREAT | O_RDWR, 0644);
 			if (tmpfd >= 0)
 				close(tmpfd);
@@ -368,7 +368,7 @@ test_out_of_order_responses(void)
 	for (i = msg_count - 1; i >= 0; i--) {
 		memset(&resp, 0, sizeof(resp));
 		resp.er_id = msgs[i].em_id;
-		resp.er_result = ESC_AUTH_ALLOW;
+		resp.er_result = OES_AUTH_ALLOW;
 		(void)write(fd, &resp, sizeof(resp));
 	}
 
@@ -390,22 +390,22 @@ static int
 test_zero_id_response(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	esc_response_t resp;
+	struct oes_mode_args mode;
+	oes_response_t resp;
 	ssize_t n;
 
 	printf("  Testing response with zero ID...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_AUTH;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_AUTH;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -413,7 +413,7 @@ test_zero_id_response(void)
 	/* Send response with ID 0 (no pending event) */
 	memset(&resp, 0, sizeof(resp));
 	resp.er_id = 0;
-	resp.er_result = ESC_AUTH_ALLOW;
+	resp.er_result = OES_AUTH_ALLOW;
 
 	n = write(fd, &resp, sizeof(resp));
 	if (n < 0) {
@@ -433,22 +433,22 @@ static int
 test_response_in_notify_mode(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	esc_response_t resp;
+	struct oes_mode_args mode;
+	oes_response_t resp;
 	ssize_t n;
 
 	printf("  Testing response in NOTIFY mode...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;  /* NOTIFY, not AUTH */
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;  /* NOTIFY, not AUTH */
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -456,7 +456,7 @@ test_response_in_notify_mode(void)
 	/* Try to send a response - should fail */
 	memset(&resp, 0, sizeof(resp));
 	resp.er_id = 12345;
-	resp.er_result = ESC_AUTH_ALLOW;
+	resp.er_result = OES_AUTH_ALLOW;
 
 	n = write(fd, &resp, sizeof(resp));
 	if (n < 0) {
@@ -477,24 +477,24 @@ static int
 test_rapid_auth_cycling(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_AUTH_OPEN };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_AUTH_OPEN };
 	struct pollfd pfd;
 	int i, responded = 0;
 
 	printf("  Testing rapid AUTH cycling (50 events)...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_AUTH;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_AUTH;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -502,9 +502,9 @@ test_rapid_auth_cycling(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -519,7 +519,7 @@ test_rapid_auth_cycling(void)
 
 		if (pid == 0) {
 			char path[64];
-			snprintf(path, sizeof(path), "/tmp/esc_rapid_%d", i);
+			snprintf(path, sizeof(path), "/tmp/oes_rapid_%d", i);
 			int tmpfd = open(path, O_CREAT | O_RDWR, 0644);
 			if (tmpfd >= 0)
 				close(tmpfd);
@@ -529,13 +529,13 @@ test_rapid_auth_cycling(void)
 
 		/* Handle AUTH events */
 		while (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			esc_message_t msg;
+			oes_message_t msg;
 			ssize_t n = read(fd, &msg, sizeof(msg));
 			if (n == sizeof(msg)) {
-				esc_response_t resp;
+				oes_response_t resp;
 				memset(&resp, 0, sizeof(resp));
 				resp.er_id = msg.em_id;
-				resp.er_result = ESC_AUTH_ALLOW;
+				resp.er_result = OES_AUTH_ALLOW;
 				if (write(fd, &resp, sizeof(resp)) == sizeof(resp))
 					responded++;
 			}
@@ -556,22 +556,22 @@ static int
 test_wrong_write_size(void)
 {
 	int fd;
-	struct esc_mode_args mode;
+	struct oes_mode_args mode;
 	char buf[1024];
 	ssize_t n;
 
 	printf("  Testing write with wrong sizes...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_AUTH;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_AUTH;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -595,7 +595,7 @@ test_wrong_write_size(void)
 	}
 
 	/* Write exact simple response size */
-	n = write(fd, buf, sizeof(esc_response_t));
+	n = write(fd, buf, sizeof(oes_response_t));
 	if (n < 0) {
 		printf("    INFO: exact size write: %s\n", strerror(errno));
 	} else {
@@ -620,8 +620,8 @@ auth_handler_thread(void *arg)
 {
 	struct auth_thread_args *ta = arg;
 	struct pollfd pfd;
-	esc_message_t msg;
-	esc_response_t resp;
+	oes_message_t msg;
+	oes_response_t resp;
 
 	pfd.fd = ta->fd;
 	pfd.events = POLLIN;
@@ -645,7 +645,7 @@ auth_handler_thread(void *arg)
 
 		memset(&resp, 0, sizeof(resp));
 		resp.er_id = msg.em_id;
-		resp.er_result = ESC_AUTH_ALLOW;
+		resp.er_result = OES_AUTH_ALLOW;
 
 		if (write(ta->fd, &resp, sizeof(resp)) == sizeof(resp))
 			ta->events_handled++;
@@ -661,9 +661,9 @@ static int
 test_concurrent_auth_threads(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_AUTH_OPEN };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_AUTH_OPEN };
 	pthread_t threads[4];
 	struct auth_thread_args args[4];
 	int i;
@@ -671,16 +671,16 @@ test_concurrent_auth_threads(void)
 
 	printf("  Testing concurrent AUTH handling (4 threads)...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_AUTH;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_AUTH;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -688,9 +688,9 @@ test_concurrent_auth_threads(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -708,7 +708,7 @@ test_concurrent_auth_threads(void)
 		pids[i] = fork();
 		if (pids[i] == 0) {
 			char path[64];
-			snprintf(path, sizeof(path), "/tmp/esc_concurrent_%d", i);
+			snprintf(path, sizeof(path), "/tmp/oes_concurrent_%d", i);
 			int tmpfd = open(path, O_CREAT | O_RDWR, 0644);
 			if (tmpfd >= 0)
 				close(tmpfd);

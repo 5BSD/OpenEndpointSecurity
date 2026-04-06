@@ -4,7 +4,7 @@
  * Copyright (c) 2026 Kory Heard <koryheard@icloud.com>
  * All rights reserved.
  *
- * Endpoint Security Capabilities (esc) - Client Management
+ * Open Endpoint Security (OES) - Client Management
  */
 
 #include <sys/param.h>
@@ -27,8 +27,8 @@
 #include <sys/sysent.h>
 #include <security/audit/audit.h>
 
-#include <security/esc/esc.h>
-#include <security/esc/esc_internal.h>
+#include <security/oes/oes.h>
+#include <security/oes/oes_internal.h>
 
 MALLOC_DECLARE(M_ESC);
 
@@ -40,7 +40,7 @@ extern struct sx proctree_lock;
  * Requires: PROC_LOCK(p) held by caller.
  */
 static uint64_t
-esc_proc_genid(struct proc *p)
+oes_proc_genid(struct proc *p)
 {
 
 	PROC_LOCK_ASSERT(p, MA_OWNED);
@@ -57,7 +57,7 @@ esc_proc_genid(struct proc *p)
 }
 
 static int
-esc_client_validate_token(const esc_proc_token_t *token)
+oes_client_validate_token(const oes_proc_token_t *token)
 {
 	struct proc *p;
 	uint64_t genid;
@@ -78,7 +78,7 @@ esc_client_validate_token(const esc_proc_token_t *token)
 		return (ESRCH);
 	}
 
-	genid = esc_proc_genid(p);
+	genid = oes_proc_genid(p);
 	PROC_UNLOCK(p);
 
 	if (token->ept_genid != 0 && token->ept_genid != genid)
@@ -87,33 +87,33 @@ esc_client_validate_token(const esc_proc_token_t *token)
 	return (0);
 }
 
-struct esc_client *
-esc_client_alloc(void)
+struct oes_client *
+oes_client_alloc(void)
 {
-	struct esc_client *ec;
+	struct oes_client *ec;
 
 	ec = malloc(sizeof(*ec), M_ESC, M_WAITOK | M_ZERO);
 
-	mtx_init(&ec->ec_mtx, "esc_client", NULL, MTX_DEF);
+	mtx_init(&ec->ec_mtx, "oes_client", NULL, MTX_DEF);
 	ec->ec_owner_pid = -1;
-	ec->ec_mode = ESC_MODE_NOTIFY;
-	ec->ec_timeout_ms = esc_default_timeout;
-	if (esc_default_action == ESC_AUTH_ALLOW ||
-	    esc_default_action == ESC_AUTH_DENY)
-		ec->ec_timeout_action = esc_default_action;
+	ec->ec_mode = OES_MODE_NOTIFY;
+	ec->ec_timeout_ms = oes_default_timeout;
+	if (oes_default_action == OES_AUTH_ALLOW ||
+	    oes_default_action == OES_AUTH_DENY)
+		ec->ec_timeout_action = oes_default_action;
 	else
-		ec->ec_timeout_action = ESC_AUTH_ALLOW;
-	ec->ec_queue_max = esc_default_queue_size;
+		ec->ec_timeout_action = OES_AUTH_ALLOW;
+	ec->ec_queue_max = oes_default_queue_size;
 
 	TAILQ_INIT(&ec->ec_pending);
 	TAILQ_INIT(&ec->ec_delivered);
-	for (int i = 0; i < ESC_MUTE_PROC_BUCKETS; i++)
+	for (int i = 0; i < OES_MUTE_PROC_BUCKETS; i++)
 		LIST_INIT(&ec->ec_muted[i]);
 	LIST_INIT(&ec->ec_muted_paths);
 	LIST_INIT(&ec->ec_muted_targets);
 	LIST_INIT(&ec->ec_muted_uids);
 	LIST_INIT(&ec->ec_muted_gids);
-	esc_cache_init(ec);
+	oes_cache_init(ec);
 
 	knlist_init_mtx(&ec->ec_selinfo.si_note, &ec->ec_mtx);
 
@@ -121,11 +121,11 @@ esc_client_alloc(void)
 }
 
 void
-esc_client_free(struct esc_client *ec)
+oes_client_free(struct oes_client *ec)
 {
-	struct esc_pending *ep, *ep_tmp;
-	struct esc_mute_entry *em, *em_tmp;
-	struct esc_mute_path_entry *epm, *epm_tmp;
+	struct oes_pending *ep, *ep_tmp;
+	struct oes_mute_entry *em, *em_tmp;
+	struct oes_mute_path_entry *epm, *epm_tmp;
 
 	EC_LOCK(ec);
 
@@ -138,17 +138,17 @@ esc_client_free(struct esc_client *ec)
 			mtx_lock(&ep->ep_mtx);
 			if (!ep->ep_responded) {
 				ep->ep_responded = true;
-				ep->ep_result = (esc_auth_result_t)
+				ep->ep_result = (oes_auth_result_t)
 				    ec->ec_timeout_action;
 				if (ep->ep_group != NULL)
-					esc_auth_group_mark_response(
+					oes_auth_group_mark_response(
 					    ep->ep_group,
-					    (esc_auth_result_t)ep->ep_result);
+					    (oes_auth_result_t)ep->ep_result);
 				cv_broadcast(&ep->ep_cv);
 			}
 			mtx_unlock(&ep->ep_mtx);
 		}
-		esc_pending_rele(ep);
+		oes_pending_rele(ep);
 	}
 
 	/* Wake any delivered AUTH events */
@@ -159,20 +159,20 @@ esc_client_free(struct esc_client *ec)
 			mtx_lock(&ep->ep_mtx);
 			if (!ep->ep_responded) {
 				ep->ep_responded = true;
-				ep->ep_result = (esc_auth_result_t)
+				ep->ep_result = (oes_auth_result_t)
 				    ec->ec_timeout_action;
 				if (ep->ep_group != NULL)
-					esc_auth_group_mark_response(
+					oes_auth_group_mark_response(
 					    ep->ep_group,
-					    (esc_auth_result_t)ep->ep_result);
+					    (oes_auth_result_t)ep->ep_result);
 				cv_broadcast(&ep->ep_cv);
 			}
 			mtx_unlock(&ep->ep_mtx);
 		}
-		esc_pending_rele(ep);
+		oes_pending_rele(ep);
 	}
 
-	for (int i = 0; i < ESC_MUTE_PROC_BUCKETS; i++) {
+	for (int i = 0; i < OES_MUTE_PROC_BUCKETS; i++) {
 		LIST_FOREACH_SAFE(em, &ec->ec_muted[i], em_link, em_tmp) {
 			LIST_REMOVE(em, em_link);
 			free(em, M_ESC);
@@ -187,8 +187,8 @@ esc_client_free(struct esc_client *ec)
 		free(epm, M_ESC);
 	}
 	{
-		struct esc_mute_uid_entry *emu, *emu_tmp;
-		struct esc_mute_gid_entry *emg, *emg_tmp;
+		struct oes_mute_uid_entry *emu, *emu_tmp;
+		struct oes_mute_gid_entry *emg, *emg_tmp;
 
 		LIST_FOREACH_SAFE(emu, &ec->ec_muted_uids, emu_link, emu_tmp) {
 			LIST_REMOVE(emu, emu_link);
@@ -200,7 +200,7 @@ esc_client_free(struct esc_client *ec)
 		}
 	}
 
-	esc_cache_destroy(ec);
+	oes_cache_destroy(ec);
 
 	EC_UNLOCK(ec);
 
@@ -212,24 +212,24 @@ esc_client_free(struct esc_client *ec)
 }
 
 int
-esc_client_subscribe_events(struct esc_client *ec, esc_event_type_t *events,
+oes_client_subscribe_events(struct oes_client *ec, oes_event_type_t *events,
     size_t count, uint32_t flags)
 {
 	size_t i;
 
 	/*
 	 * Validate all events BEFORE modifying state to ensure atomicity.
-	 * Without this, ESC_SUB_REPLACE could clear subscriptions and then
+	 * Without this, OES_SUB_REPLACE could clear subscriptions and then
 	 * fail partway through, leaving the client with partial subscriptions.
 	 */
 	EC_LOCK(ec);
 
 	for (i = 0; i < count; i++) {
-		esc_event_type_t ev = events[i];
+		oes_event_type_t ev = events[i];
 		int bit = ev & 0x0FFF;
 
 		/* Validate event type */
-		if (!ESC_EVENT_IS_AUTH(ev) && !ESC_EVENT_IS_NOTIFY(ev)) {
+		if (!OES_EVENT_IS_AUTH(ev) && !OES_EVENT_IS_NOTIFY(ev)) {
 			EC_UNLOCK(ec);
 			return (EINVAL);
 		}
@@ -241,9 +241,9 @@ esc_client_subscribe_events(struct esc_client *ec, esc_event_type_t *events,
 		}
 
 		/* AUTH events require AUTH mode (PASSIVE gets them as NOTIFY). */
-		if (ESC_EVENT_IS_AUTH(ev) && ec->ec_mode != ESC_MODE_AUTH) {
-			if (ec->ec_mode == ESC_MODE_PASSIVE) {
-				if (esc_auth_to_notify(ev) == 0) {
+		if (OES_EVENT_IS_AUTH(ev) && ec->ec_mode != OES_MODE_AUTH) {
+			if (ec->ec_mode == OES_MODE_PASSIVE) {
+				if (oes_auth_to_notify(ev) == 0) {
 					EC_UNLOCK(ec);
 					return (EPERM);
 				}
@@ -256,15 +256,15 @@ esc_client_subscribe_events(struct esc_client *ec, esc_event_type_t *events,
 	}
 
 	/* All events validated - now apply changes atomically */
-	if (flags & ESC_SUB_REPLACE)
-		esc_client_unsubscribe_all(ec);
+	if (flags & OES_SUB_REPLACE)
+		oes_client_unsubscribe_all(ec);
 
 	for (i = 0; i < count; i++)
-		esc_client_subscribe(ec, events[i]);
+		oes_client_subscribe(ec, events[i]);
 
 	EC_UNLOCK(ec);
 
-	ESC_DEBUG("client %p subscribed to %zu events", ec, count);
+	OES_DEBUG("client %p subscribed to %zu events", ec, count);
 
 	return (0);
 }
@@ -274,7 +274,7 @@ esc_client_subscribe_events(struct esc_client *ec, esc_event_type_t *events,
  * All set bits must have corresponding NOTIFY mappings.
  */
 static bool
-esc_validate_auth_bitmap_for_passive(const uint64_t auth_bitmap[2])
+oes_validate_auth_bitmap_for_passive(const uint64_t auth_bitmap[2])
 {
 	int i, j;
 
@@ -282,8 +282,8 @@ esc_validate_auth_bitmap_for_passive(const uint64_t auth_bitmap[2])
 		uint64_t mask = auth_bitmap[j];
 		for (i = 0; i < 64; i++) {
 			if (mask & (1ULL << i)) {
-				esc_event_type_t ev = (j * 64) + i;
-				if (esc_auth_to_notify(ev) == 0)
+				oes_event_type_t ev = (j * 64) + i;
+				if (oes_auth_to_notify(ev) == 0)
 					return (false);
 			}
 		}
@@ -292,22 +292,22 @@ esc_validate_auth_bitmap_for_passive(const uint64_t auth_bitmap[2])
 }
 
 int
-esc_client_subscribe_bitmap(struct esc_client *ec, uint64_t auth_bitmap,
+oes_client_subscribe_bitmap(struct oes_client *ec, uint64_t auth_bitmap,
     uint64_t notify_bitmap, uint32_t flags)
 {
 	EC_LOCK(ec);
 
 	/* AUTH subscriptions require AUTH mode (or PASSIVE) */
 	if (auth_bitmap != 0) {
-		if (ec->ec_mode != ESC_MODE_AUTH &&
-		    ec->ec_mode != ESC_MODE_PASSIVE) {
+		if (ec->ec_mode != OES_MODE_AUTH &&
+		    ec->ec_mode != OES_MODE_PASSIVE) {
 			EC_UNLOCK(ec);
 			return (EPERM);
 		}
 		/* PASSIVE: validate all AUTH bits have NOTIFY mappings */
-		if (ec->ec_mode == ESC_MODE_PASSIVE) {
+		if (ec->ec_mode == OES_MODE_PASSIVE) {
 			uint64_t bitmap[2] = { auth_bitmap, 0 };
-			if (!esc_validate_auth_bitmap_for_passive(bitmap)) {
+			if (!oes_validate_auth_bitmap_for_passive(bitmap)) {
 				EC_UNLOCK(ec);
 				return (EPERM);
 			}
@@ -315,8 +315,8 @@ esc_client_subscribe_bitmap(struct esc_client *ec, uint64_t auth_bitmap,
 	}
 
 	/* Replace mode: clear existing subscriptions */
-	if (flags & ESC_SUB_REPLACE)
-		esc_client_unsubscribe_all(ec);
+	if (flags & OES_SUB_REPLACE)
+		oes_client_unsubscribe_all(ec);
 
 	/* Apply bitmaps (low 64 bits only for legacy ioctl) */
 	ec->ec_subscriptions[0] |= auth_bitmap;
@@ -324,14 +324,14 @@ esc_client_subscribe_bitmap(struct esc_client *ec, uint64_t auth_bitmap,
 
 	EC_UNLOCK(ec);
 
-	ESC_DEBUG("client %p subscribed via bitmap (auth=0x%lx, notify=0x%lx)",
+	OES_DEBUG("client %p subscribed via bitmap (auth=0x%lx, notify=0x%lx)",
 	    ec, (unsigned long)auth_bitmap, (unsigned long)notify_bitmap);
 
 	return (0);
 }
 
 int
-esc_client_subscribe_bitmap_ex(struct esc_client *ec,
+oes_client_subscribe_bitmap_ex(struct oes_client *ec,
     const uint64_t auth_bitmap[2], const uint64_t notify_bitmap[2],
     uint32_t flags)
 {
@@ -339,14 +339,14 @@ esc_client_subscribe_bitmap_ex(struct esc_client *ec,
 
 	/* AUTH subscriptions require AUTH mode (or PASSIVE) */
 	if (auth_bitmap[0] != 0 || auth_bitmap[1] != 0) {
-		if (ec->ec_mode != ESC_MODE_AUTH &&
-		    ec->ec_mode != ESC_MODE_PASSIVE) {
+		if (ec->ec_mode != OES_MODE_AUTH &&
+		    ec->ec_mode != OES_MODE_PASSIVE) {
 			EC_UNLOCK(ec);
 			return (EPERM);
 		}
 		/* PASSIVE: validate all AUTH bits have NOTIFY mappings */
-		if (ec->ec_mode == ESC_MODE_PASSIVE) {
-			if (!esc_validate_auth_bitmap_for_passive(auth_bitmap)) {
+		if (ec->ec_mode == OES_MODE_PASSIVE) {
+			if (!oes_validate_auth_bitmap_for_passive(auth_bitmap)) {
 				EC_UNLOCK(ec);
 				return (EPERM);
 			}
@@ -354,8 +354,8 @@ esc_client_subscribe_bitmap_ex(struct esc_client *ec,
 	}
 
 	/* Replace mode: clear existing subscriptions */
-	if (flags & ESC_SUB_REPLACE)
-		esc_client_unsubscribe_all(ec);
+	if (flags & OES_SUB_REPLACE)
+		oes_client_unsubscribe_all(ec);
 
 	/* Apply bitmaps */
 	ec->ec_subscriptions[0] |= auth_bitmap[0];
@@ -365,7 +365,7 @@ esc_client_subscribe_bitmap_ex(struct esc_client *ec,
 
 	EC_UNLOCK(ec);
 
-	ESC_DEBUG("client %p subscribed via ext bitmap", ec);
+	OES_DEBUG("client %p subscribed via ext bitmap", ec);
 
 	return (0);
 }
@@ -375,15 +375,15 @@ esc_client_subscribe_bitmap_ex(struct esc_client *ec,
  * Called when client first sets mode.
  */
 static void
-esc_client_apply_default_mutes(struct esc_client *ec)
+oes_client_apply_default_mutes(struct oes_client *ec)
 {
 	char pathbuf[MAXPATHLEN];
 	const char *start, *end;
 	size_t len;
 
 	/* Apply default self-mute (add entry to list for query consistency) */
-	if (esc_default_self_mute && !(ec->ec_flags & EC_FLAG_MUTED_SELF)) {
-		struct esc_mute_entry *em;
+	if (oes_default_self_mute && !(ec->ec_flags & EC_FLAG_MUTED_SELF)) {
+		struct oes_mute_entry *em;
 
 		em = malloc(sizeof(*em), M_ESC, M_NOWAIT | M_ZERO);
 
@@ -394,17 +394,17 @@ esc_client_apply_default_mutes(struct esc_client *ec)
 			em->em_genid = ec->ec_owner_genid;
 			/* em_events stays 0 = mute all */
 			LIST_INSERT_HEAD(
-			    &ec->ec_muted[esc_mute_proc_bucket(ec->ec_owner_pid)],
+			    &ec->ec_muted[oes_mute_proc_bucket(ec->ec_owner_pid)],
 			    em, em_link);
 			ec->ec_muted_proc_count++;
 		}
 		EC_UNLOCK(ec);
-		ESC_DEBUG("client %p: applied default self-mute", ec);
+		OES_DEBUG("client %p: applied default self-mute", ec);
 	}
 
 	/* Apply default prefix path mutes */
-	if (esc_default_muted_paths[0] != '\0') {
-		start = esc_default_muted_paths;
+	if (oes_default_muted_paths[0] != '\0') {
+		start = oes_default_muted_paths;
 		while (*start != '\0') {
 			/* Find end of this path (colon or end of string) */
 			end = start;
@@ -414,9 +414,9 @@ esc_client_apply_default_mutes(struct esc_client *ec)
 			if (len > 0 && len < MAXPATHLEN) {
 				memcpy(pathbuf, start, len);
 				pathbuf[len] = '\0';
-				(void)esc_client_mute_path(ec, pathbuf,
-				    ESC_MUTE_PATH_PREFIX, false);
-				ESC_DEBUG("client %p: muted prefix path %s",
+				(void)oes_client_mute_path(ec, pathbuf,
+				    OES_MUTE_PATH_PREFIX, false);
+				OES_DEBUG("client %p: muted prefix path %s",
 				    ec, pathbuf);
 			}
 			/* Skip to next path */
@@ -425,8 +425,8 @@ esc_client_apply_default_mutes(struct esc_client *ec)
 	}
 
 	/* Apply default literal path mutes */
-	if (esc_default_muted_paths_literal[0] != '\0') {
-		start = esc_default_muted_paths_literal;
+	if (oes_default_muted_paths_literal[0] != '\0') {
+		start = oes_default_muted_paths_literal;
 		while (*start != '\0') {
 			end = start;
 			while (*end != '\0' && *end != ':')
@@ -435,9 +435,9 @@ esc_client_apply_default_mutes(struct esc_client *ec)
 			if (len > 0 && len < MAXPATHLEN) {
 				memcpy(pathbuf, start, len);
 				pathbuf[len] = '\0';
-				(void)esc_client_mute_path(ec, pathbuf,
-				    ESC_MUTE_PATH_LITERAL, false);
-				ESC_DEBUG("client %p: muted literal path %s",
+				(void)oes_client_mute_path(ec, pathbuf,
+				    OES_MUTE_PATH_LITERAL, false);
+				OES_DEBUG("client %p: muted literal path %s",
 				    ec, pathbuf);
 			}
 			start = (*end == ':') ? end + 1 : end;
@@ -446,7 +446,7 @@ esc_client_apply_default_mutes(struct esc_client *ec)
 }
 
 int
-esc_client_set_mode(struct esc_client *ec, uint32_t mode, uint32_t timeout_ms,
+oes_client_set_mode(struct oes_client *ec, uint32_t mode, uint32_t timeout_ms,
     uint32_t queue_size)
 {
 	bool first_mode_set;
@@ -457,8 +457,8 @@ esc_client_set_mode(struct esc_client *ec, uint32_t mode, uint32_t timeout_ms,
 	first_mode_set = !(ec->ec_flags & EC_FLAG_MODE_SET);
 
 	/* Validate mode */
-	if (mode != ESC_MODE_NOTIFY && mode != ESC_MODE_AUTH &&
-	    mode != ESC_MODE_PASSIVE) {
+	if (mode != OES_MODE_NOTIFY && mode != OES_MODE_AUTH &&
+	    mode != OES_MODE_PASSIVE) {
 		EC_UNLOCK(ec);
 		return (EINVAL);
 	}
@@ -467,10 +467,10 @@ esc_client_set_mode(struct esc_client *ec, uint32_t mode, uint32_t timeout_ms,
 	ec->ec_flags |= EC_FLAG_MODE_SET;
 
 	if (timeout_ms != 0) {
-		if (timeout_ms < ESC_MIN_TIMEOUT_MS)
-			timeout_ms = ESC_MIN_TIMEOUT_MS;
-		if (timeout_ms > ESC_MAX_TIMEOUT_MS)
-			timeout_ms = ESC_MAX_TIMEOUT_MS;
+		if (timeout_ms < OES_MIN_TIMEOUT_MS)
+			timeout_ms = OES_MIN_TIMEOUT_MS;
+		if (timeout_ms > OES_MAX_TIMEOUT_MS)
+			timeout_ms = OES_MAX_TIMEOUT_MS;
 		ec->ec_timeout_ms = timeout_ms;
 	}
 
@@ -484,16 +484,16 @@ esc_client_set_mode(struct esc_client *ec, uint32_t mode, uint32_t timeout_ms,
 
 	/* Apply default mutes on first mode set */
 	if (first_mode_set)
-		esc_client_apply_default_mutes(ec);
+		oes_client_apply_default_mutes(ec);
 
-	ESC_DEBUG("client %p mode=%u timeout=%u queue=%u",
+	OES_DEBUG("client %p mode=%u timeout=%u queue=%u",
 	    ec, mode, ec->ec_timeout_ms, ec->ec_queue_max);
 
 	return (0);
 }
 
 void
-esc_client_get_mode(struct esc_client *ec, uint32_t *mode, uint32_t *timeout_ms,
+oes_client_get_mode(struct oes_client *ec, uint32_t *mode, uint32_t *timeout_ms,
     uint32_t *queue_size)
 {
 
@@ -508,25 +508,25 @@ esc_client_get_mode(struct esc_client *ec, uint32_t *mode, uint32_t *timeout_ms,
 }
 
 int
-esc_client_set_timeout(struct esc_client *ec, uint32_t timeout_ms)
+oes_client_set_timeout(struct oes_client *ec, uint32_t timeout_ms)
 {
 
 	/* Clamp to valid range */
-	if (timeout_ms < ESC_MIN_TIMEOUT_MS)
-		timeout_ms = ESC_MIN_TIMEOUT_MS;
-	if (timeout_ms > ESC_MAX_TIMEOUT_MS)
-		timeout_ms = ESC_MAX_TIMEOUT_MS;
+	if (timeout_ms < OES_MIN_TIMEOUT_MS)
+		timeout_ms = OES_MIN_TIMEOUT_MS;
+	if (timeout_ms > OES_MAX_TIMEOUT_MS)
+		timeout_ms = OES_MAX_TIMEOUT_MS;
 
 	EC_LOCK(ec);
 	ec->ec_timeout_ms = timeout_ms;
 	EC_UNLOCK(ec);
 
-	ESC_DEBUG("client %p timeout set to %u ms", ec, timeout_ms);
+	OES_DEBUG("client %p timeout set to %u ms", ec, timeout_ms);
 	return (0);
 }
 
 void
-esc_client_get_timeout(struct esc_client *ec, uint32_t *timeout_ms)
+oes_client_get_timeout(struct oes_client *ec, uint32_t *timeout_ms)
 {
 
 	EC_LOCK(ec);
@@ -536,9 +536,9 @@ esc_client_get_timeout(struct esc_client *ec, uint32_t *timeout_ms)
 }
 
 static bool
-esc_event_in_bitmap(esc_event_type_t event, const uint64_t bitmap[4])
+oes_event_in_bitmap(oes_event_type_t event, const uint64_t bitmap[4])
 {
-	int base = ESC_EVENT_IS_NOTIFY(event) ? 2 : 0;
+	int base = OES_EVENT_IS_NOTIFY(event) ? 2 : 0;
 	int bit = event & 0x0FFF;
 	int word = bit / 64;
 	int shift = bit % 64;
@@ -555,9 +555,9 @@ esc_event_in_bitmap(esc_event_type_t event, const uint64_t bitmap[4])
  * Otherwise, checks if the specific event is muted for this process.
  */
 bool
-esc_client_is_muted(struct esc_client *ec, struct proc *p, esc_event_type_t event)
+oes_client_is_muted(struct oes_client *ec, struct proc *p, oes_event_type_t event)
 {
-	struct esc_mute_entry *em;
+	struct oes_mute_entry *em;
 	bool in_list = false;
 	uint64_t genid;
 	bool inverted;
@@ -573,7 +573,7 @@ esc_client_is_muted(struct esc_client *ec, struct proc *p, esc_event_type_t even
 		PROC_UNLOCK(p);
 		return (false);
 	}
-	genid = esc_proc_genid(p);
+	genid = oes_proc_genid(p);
 	PROC_UNLOCK(p);
 
 	/*
@@ -591,7 +591,7 @@ esc_client_is_muted(struct esc_client *ec, struct proc *p, esc_event_type_t even
 	}
 
 	/* Check mute list - use hash bucket for O(1) average lookup */
-	LIST_FOREACH(em, &ec->ec_muted[esc_mute_proc_bucket(p->p_pid)], em_link) {
+	LIST_FOREACH(em, &ec->ec_muted[oes_mute_proc_bucket(p->p_pid)], em_link) {
 		if (em->em_pid != p->p_pid)
 			continue;
 		if (em->em_genid != 0 && em->em_genid != genid)
@@ -605,7 +605,7 @@ esc_client_is_muted(struct esc_client *ec, struct proc *p, esc_event_type_t even
 		if (em->em_events[0] == 0 && em->em_events[1] == 0 &&
 		    em->em_events[2] == 0 && em->em_events[3] == 0) {
 			in_list = true;  /* All events muted */
-		} else if (event != 0 && esc_event_in_bitmap(event, em->em_events)) {
+		} else if (event != 0 && oes_event_in_bitmap(event, em->em_events)) {
 			in_list = true;  /* Specific event muted */
 		} else if (event == 0) {
 			in_list = true;  /* Legacy: any mute entry counts */
@@ -625,10 +625,10 @@ apply_inversion:
  * Safe to call from NOSLEEP context (fork/exit/signal handlers).
  */
 bool
-esc_client_is_muted_by_token(struct esc_client *ec, const esc_proc_token_t *token,
-    esc_event_type_t event)
+oes_client_is_muted_by_token(struct oes_client *ec, const oes_proc_token_t *token,
+    oes_event_type_t event)
 {
-	struct esc_mute_entry *em;
+	struct oes_mute_entry *em;
 	bool in_list = false;
 	pid_t pid;
 	uint64_t genid;
@@ -653,7 +653,7 @@ esc_client_is_muted_by_token(struct esc_client *ec, const esc_proc_token_t *toke
 	}
 
 	/* Check mute list - use hash bucket for O(1) average lookup */
-	LIST_FOREACH(em, &ec->ec_muted[esc_mute_proc_bucket(pid)], em_link) {
+	LIST_FOREACH(em, &ec->ec_muted[oes_mute_proc_bucket(pid)], em_link) {
 		if (em->em_pid != pid)
 			continue;
 		if (em->em_genid != 0 && em->em_genid != genid)
@@ -667,7 +667,7 @@ esc_client_is_muted_by_token(struct esc_client *ec, const esc_proc_token_t *toke
 		if (em->em_events[0] == 0 && em->em_events[1] == 0 &&
 		    em->em_events[2] == 0 && em->em_events[3] == 0) {
 			in_list = true;  /* All events muted */
-		} else if (event != 0 && esc_event_in_bitmap(event, em->em_events)) {
+		} else if (event != 0 && oes_event_in_bitmap(event, em->em_events)) {
 			in_list = true;  /* Specific event muted */
 		} else if (event == 0) {
 			in_list = true;  /* Legacy: any mute entry counts */
@@ -681,7 +681,7 @@ apply_inversion:
 }
 
 static bool
-esc_path_match(const struct esc_mute_path_entry *emp, const char *path)
+oes_path_match(const struct oes_mute_path_entry *emp, const char *path)
 {
 	size_t path_len;
 
@@ -689,10 +689,10 @@ esc_path_match(const struct esc_mute_path_entry *emp, const char *path)
 		return (false);
 
 	path_len = strlen(path);
-	if (emp->emp_type == ESC_MUTE_PATH_LITERAL)
+	if (emp->emp_type == OES_MUTE_PATH_LITERAL)
 		return (path_len == emp->emp_len &&
 		    memcmp(emp->emp_path, path, emp->emp_len) == 0);
-	if (emp->emp_type == ESC_MUTE_PATH_PREFIX)
+	if (emp->emp_type == OES_MUTE_PATH_PREFIX)
 		return (path_len >= emp->emp_len &&
 		    memcmp(emp->emp_path, path, emp->emp_len) == 0);
 	return (false);
@@ -705,10 +705,10 @@ esc_path_match(const struct esc_mute_path_entry *emp, const char *path)
  * Otherwise, checks if the specific event is muted for this path.
  */
 bool
-esc_client_is_path_muted(struct esc_client *ec, const char *path, bool target,
-    esc_event_type_t event)
+oes_client_is_path_muted(struct oes_client *ec, const char *path, bool target,
+    oes_event_type_t event)
 {
-	struct esc_mute_path_entry *emp;
+	struct oes_mute_path_entry *emp;
 	bool in_list = false;
 	bool inverted;
 
@@ -719,7 +719,7 @@ esc_client_is_path_muted(struct esc_client *ec, const char *path, bool target,
 
 	LIST_FOREACH(emp, target ? &ec->ec_muted_targets
 	    : &ec->ec_muted_paths, emp_link) {
-		if (!esc_path_match(emp, path))
+		if (!oes_path_match(emp, path))
 			continue;
 
 		/*
@@ -730,7 +730,7 @@ esc_client_is_path_muted(struct esc_client *ec, const char *path, bool target,
 		if (emp->emp_events[0] == 0 && emp->emp_events[1] == 0 &&
 		    emp->emp_events[2] == 0 && emp->emp_events[3] == 0) {
 			in_list = true;  /* All events muted */
-		} else if (event != 0 && esc_event_in_bitmap(event, emp->emp_events)) {
+		} else if (event != 0 && oes_event_in_bitmap(event, emp->emp_events)) {
 			in_list = true;  /* Specific event muted */
 		} else if (event == 0) {
 			in_list = true;  /* Legacy: any mute entry counts */
@@ -752,10 +752,10 @@ esc_client_is_path_muted(struct esc_client *ec, const char *path, bool target,
  * the event's file has matching ino/dev, the file is considered muted.
  */
 bool
-esc_client_is_token_muted(struct esc_client *ec, uint64_t ino, uint64_t dev,
-    bool target, esc_event_type_t event)
+oes_client_is_token_muted(struct oes_client *ec, uint64_t ino, uint64_t dev,
+    bool target, oes_event_type_t event)
 {
-	struct esc_mute_path_entry *emp;
+	struct oes_mute_path_entry *emp;
 	bool in_list = false;
 	bool inverted;
 
@@ -779,7 +779,7 @@ esc_client_is_token_muted(struct esc_client *ec, uint64_t ino, uint64_t dev,
 		if (emp->emp_events[0] == 0 && emp->emp_events[1] == 0 &&
 		    emp->emp_events[2] == 0 && emp->emp_events[3] == 0) {
 			in_list = true;  /* All events muted */
-		} else if (event != 0 && esc_event_in_bitmap(event, emp->emp_events)) {
+		} else if (event != 0 && oes_event_in_bitmap(event, emp->emp_events)) {
 			in_list = true;  /* Specific event muted */
 		} else if (event == 0) {
 			in_list = true;  /* Legacy: any mute entry counts */
@@ -794,18 +794,18 @@ esc_client_is_token_muted(struct esc_client *ec, uint64_t ino, uint64_t dev,
 }
 
 int
-esc_client_mute(struct esc_client *ec, esc_proc_token_t *token, uint32_t flags)
+oes_client_mute(struct oes_client *ec, oes_proc_token_t *token, uint32_t flags)
 {
-	struct esc_mute_entry *em;
+	struct oes_mute_entry *em;
 	int error;
 
 	/* Self-mute: set flag AND add entry to list for query consistency */
-	if (flags & ESC_MUTE_SELF) {
+	if (flags & OES_MUTE_SELF) {
 		EC_LOCK(ec);
 
 		/* Check if already in list (use owner_pid to match enforcement) */
 		LIST_FOREACH(em,
-		    &ec->ec_muted[esc_mute_proc_bucket(ec->ec_owner_pid)],
+		    &ec->ec_muted[oes_mute_proc_bucket(ec->ec_owner_pid)],
 		    em_link) {
 			if (em->em_pid == ec->ec_owner_pid) {
 				/* Already in list, just ensure flag is set */
@@ -816,7 +816,7 @@ esc_client_mute(struct esc_client *ec, esc_proc_token_t *token, uint32_t flags)
 		}
 
 		/* Check limit */
-		if (ec->ec_muted_proc_count >= ESC_MUTE_PROC_MAX) {
+		if (ec->ec_muted_proc_count >= OES_MUTE_PROC_MAX) {
 			/* Still set flag even if can't add to list */
 			ec->ec_flags |= EC_FLAG_MUTED_SELF;
 			EC_UNLOCK(ec);
@@ -836,30 +836,30 @@ esc_client_mute(struct esc_client *ec, esc_proc_token_t *token, uint32_t flags)
 		em->em_genid = ec->ec_owner_genid;
 		/* em_events[] stays zeroed = mute all events */
 		LIST_INSERT_HEAD(
-		    &ec->ec_muted[esc_mute_proc_bucket(ec->ec_owner_pid)],
+		    &ec->ec_muted[oes_mute_proc_bucket(ec->ec_owner_pid)],
 		    em, em_link);
 		ec->ec_muted_proc_count++;
 		ec->ec_flags |= EC_FLAG_MUTED_SELF;
 
 		EC_UNLOCK(ec);
-		ESC_DEBUG("client %p self-muted", ec);
+		OES_DEBUG("client %p self-muted", ec);
 		return (0);
 	}
 
-	error = esc_client_validate_token(token);
+	error = oes_client_validate_token(token);
 	if (error != 0)
 		return (error);
 
 	EC_LOCK(ec);
 
 	/* Check limit */
-	if (ec->ec_muted_proc_count >= ESC_MUTE_PROC_MAX) {
+	if (ec->ec_muted_proc_count >= OES_MUTE_PROC_MAX) {
 		EC_UNLOCK(ec);
 		return (ENOSPC);
 	}
 
 	/* Check if already muted, handling PID reuse */
-	LIST_FOREACH(em, &ec->ec_muted[esc_mute_proc_bucket(token->ept_id)],
+	LIST_FOREACH(em, &ec->ec_muted[oes_mute_proc_bucket(token->ept_id)],
 	    em_link) {
 		if (em->em_pid == (pid_t)token->ept_id) {
 			if (em->em_genid == token->ept_genid) {
@@ -873,7 +873,7 @@ esc_client_mute(struct esc_client *ec, esc_proc_token_t *token, uint32_t flags)
 			em->em_genid = token->ept_genid;
 			memset(em->em_events, 0, sizeof(em->em_events));
 			EC_UNLOCK(ec);
-			ESC_DEBUG("client %p updated muted pid %d (genid %ju)",
+			OES_DEBUG("client %p updated muted pid %d (genid %ju)",
 			    ec, em->em_pid, (uintmax_t)em->em_genid);
 			return (0);
 		}
@@ -889,23 +889,23 @@ esc_client_mute(struct esc_client *ec, esc_proc_token_t *token, uint32_t flags)
 	em->em_pid = (pid_t)token->ept_id;
 	em->em_genid = token->ept_genid;
 	/* em_events[] is zeroed by M_ZERO, meaning mute all events */
-	LIST_INSERT_HEAD(&ec->ec_muted[esc_mute_proc_bucket(token->ept_id)],
+	LIST_INSERT_HEAD(&ec->ec_muted[oes_mute_proc_bucket(token->ept_id)],
 	    em, em_link);
 	ec->ec_muted_proc_count++;
 
 	EC_UNLOCK(ec);
 
-	ESC_DEBUG("client %p muted pid %d", ec, em->em_pid);
+	OES_DEBUG("client %p muted pid %d", ec, em->em_pid);
 
 	return (0);
 }
 
 int
-esc_client_mute_path(struct esc_client *ec, const char *path, uint32_t type,
+oes_client_mute_path(struct oes_client *ec, const char *path, uint32_t type,
     bool target)
 {
-	struct esc_mute_path_entry *emp;
-	struct esc_mute_path_list *list;
+	struct oes_mute_path_entry *emp;
+	struct oes_mute_path_list *list;
 	struct nameidata nd;
 	struct vattr va;
 	size_t len;
@@ -919,7 +919,7 @@ esc_client_mute_path(struct esc_client *ec, const char *path, uint32_t type,
 	if (len == 0 || len >= MAXPATHLEN)
 		return (EINVAL);
 
-	if (type != ESC_MUTE_PATH_LITERAL && type != ESC_MUTE_PATH_PREFIX)
+	if (type != OES_MUTE_PATH_LITERAL && type != OES_MUTE_PATH_PREFIX)
 		return (EINVAL);
 
 	/*
@@ -928,7 +928,7 @@ esc_client_mute_path(struct esc_client *ec, const char *path, uint32_t type,
 	 * path resolution fails (e.g., locked vnodes).
 	 * Only attempt for literal full paths (starting with /).
 	 */
-	if (type == ESC_MUTE_PATH_LITERAL && path[0] == '/') {
+	if (type == OES_MUTE_PATH_LITERAL && path[0] == '/') {
 		NDINIT(&nd, LOOKUP, FOLLOW | LOCKLEAF, UIO_SYSSPACE, path);
 		if (namei(&nd) == 0) {
 			if (VOP_GETATTR(nd.ni_vp, &va,
@@ -948,12 +948,12 @@ esc_client_mute_path(struct esc_client *ec, const char *path, uint32_t type,
 
 	/* Check limit */
 	if (target) {
-		if (ec->ec_muted_target_count >= ESC_MUTE_PATH_MAX) {
+		if (ec->ec_muted_target_count >= OES_MUTE_PATH_MAX) {
 			EC_UNLOCK(ec);
 			return (ENOSPC);
 		}
 	} else {
-		if (ec->ec_muted_path_count >= ESC_MUTE_PATH_MAX) {
+		if (ec->ec_muted_path_count >= OES_MUTE_PATH_MAX) {
 			EC_UNLOCK(ec);
 			return (ENOSPC);
 		}
@@ -992,11 +992,11 @@ esc_client_mute_path(struct esc_client *ec, const char *path, uint32_t type,
 }
 
 int
-esc_client_unmute_path(struct esc_client *ec, const char *path, uint32_t type,
+oes_client_unmute_path(struct oes_client *ec, const char *path, uint32_t type,
     bool target)
 {
-	struct esc_mute_path_entry *emp, *emp_tmp;
-	struct esc_mute_path_list *list;
+	struct oes_mute_path_entry *emp, *emp_tmp;
+	struct oes_mute_path_list *list;
 	size_t len;
 	int error = ESRCH;
 
@@ -1007,7 +1007,7 @@ esc_client_unmute_path(struct esc_client *ec, const char *path, uint32_t type,
 	if (len == 0 || len >= MAXPATHLEN)
 		return (EINVAL);
 
-	if (type != ESC_MUTE_PATH_LITERAL && type != ESC_MUTE_PATH_PREFIX)
+	if (type != OES_MUTE_PATH_LITERAL && type != OES_MUTE_PATH_PREFIX)
 		return (EINVAL);
 
 	list = target ? &ec->ec_muted_targets : &ec->ec_muted_paths;
@@ -1034,9 +1034,9 @@ esc_client_unmute_path(struct esc_client *ec, const char *path, uint32_t type,
 }
 
 int
-esc_client_unmute(struct esc_client *ec, esc_proc_token_t *token)
+oes_client_unmute(struct oes_client *ec, oes_proc_token_t *token)
 {
-	struct esc_mute_entry *em, *em_tmp;
+	struct oes_mute_entry *em, *em_tmp;
 	int error = ESRCH;
 
 	if (token == NULL)
@@ -1044,7 +1044,7 @@ esc_client_unmute(struct esc_client *ec, esc_proc_token_t *token)
 
 	EC_LOCK(ec);
 
-	LIST_FOREACH_SAFE(em, &ec->ec_muted[esc_mute_proc_bucket(token->ept_id)],
+	LIST_FOREACH_SAFE(em, &ec->ec_muted[oes_mute_proc_bucket(token->ept_id)],
 	    em_link, em_tmp) {
 		if (em->em_pid == (pid_t)token->ept_id &&
 		    (em->em_genid == 0 || em->em_genid == token->ept_genid)) {
@@ -1062,18 +1062,18 @@ esc_client_unmute(struct esc_client *ec, esc_proc_token_t *token)
 }
 
 int
-esc_client_set_mute_invert(struct esc_client *ec, uint32_t type, bool invert)
+oes_client_set_mute_invert(struct oes_client *ec, uint32_t type, bool invert)
 {
 	uint32_t mask;
 
 	switch (type) {
-	case ESC_MUTE_INVERT_PROCESS:
+	case OES_MUTE_INVERT_PROCESS:
 		mask = EC_MUTE_INVERT_PROCESS;
 		break;
-	case ESC_MUTE_INVERT_PATH:
+	case OES_MUTE_INVERT_PATH:
 		mask = EC_MUTE_INVERT_PATH;
 		break;
-	case ESC_MUTE_INVERT_TARGET_PATH:
+	case OES_MUTE_INVERT_TARGET_PATH:
 		mask = EC_MUTE_INVERT_TARGET;
 		break;
 	default:
@@ -1091,7 +1091,7 @@ esc_client_set_mute_invert(struct esc_client *ec, uint32_t type, bool invert)
 }
 
 int
-esc_client_get_mute_invert(struct esc_client *ec, uint32_t type,
+oes_client_get_mute_invert(struct oes_client *ec, uint32_t type,
     uint32_t *invert)
 {
 	uint32_t mask;
@@ -1100,13 +1100,13 @@ esc_client_get_mute_invert(struct esc_client *ec, uint32_t type,
 		return (EINVAL);
 
 	switch (type) {
-	case ESC_MUTE_INVERT_PROCESS:
+	case OES_MUTE_INVERT_PROCESS:
 		mask = EC_MUTE_INVERT_PROCESS;
 		break;
-	case ESC_MUTE_INVERT_PATH:
+	case OES_MUTE_INVERT_PATH:
 		mask = EC_MUTE_INVERT_PATH;
 		break;
-	case ESC_MUTE_INVERT_TARGET_PATH:
+	case OES_MUTE_INVERT_TARGET_PATH:
 		mask = EC_MUTE_INVERT_TARGET;
 		break;
 	default:
@@ -1121,9 +1121,9 @@ esc_client_get_mute_invert(struct esc_client *ec, uint32_t type,
 }
 
 int
-esc_client_set_timeout_action(struct esc_client *ec, uint32_t action)
+oes_client_set_timeout_action(struct oes_client *ec, uint32_t action)
 {
-	if (action != ESC_AUTH_ALLOW && action != ESC_AUTH_DENY)
+	if (action != OES_AUTH_ALLOW && action != OES_AUTH_DENY)
 		return (EINVAL);
 
 	EC_LOCK(ec);
@@ -1134,7 +1134,7 @@ esc_client_set_timeout_action(struct esc_client *ec, uint32_t action)
 }
 
 int
-esc_client_get_timeout_action(struct esc_client *ec, uint32_t *action)
+oes_client_get_timeout_action(struct oes_client *ec, uint32_t *action)
 {
 	if (action == NULL)
 		return (EINVAL);
@@ -1147,7 +1147,7 @@ esc_client_get_timeout_action(struct esc_client *ec, uint32_t *action)
 }
 
 void
-esc_client_get_stats(struct esc_client *ec, struct esc_stats *stats)
+oes_client_get_stats(struct oes_client *ec, struct oes_stats *stats)
 {
 	EC_LOCK(ec);
 
@@ -1181,7 +1181,7 @@ esc_client_get_stats(struct esc_client *ec, struct esc_stats *stats)
 
 /* Returns false if any events are invalid (out of range or not AUTH/NOTIFY) */
 static bool
-esc_events_to_bitmap(const esc_event_type_t *events, size_t count,
+oes_events_to_bitmap(const oes_event_type_t *events, size_t count,
     uint64_t bitmap[4])
 {
 	size_t i;
@@ -1193,13 +1193,13 @@ esc_events_to_bitmap(const esc_event_type_t *events, size_t count,
 	bitmap[3] = 0;
 
 	for (i = 0; i < count; i++) {
-		esc_event_type_t ev = events[i];
+		oes_event_type_t ev = events[i];
 		int bit = ev & 0x0FFF;
 		int base, word, shift;
 
 		/* Validate event is AUTH or NOTIFY */
-		if (!ESC_EVENT_IS_AUTH(ev) && !ESC_EVENT_IS_NOTIFY(ev)) {
-			ESC_WARN("event type 0x%x is neither AUTH nor NOTIFY",
+		if (!OES_EVENT_IS_AUTH(ev) && !OES_EVENT_IS_NOTIFY(ev)) {
+			OES_WARN("event type 0x%x is neither AUTH nor NOTIFY",
 			    ev);
 			valid = false;
 			continue;
@@ -1207,12 +1207,12 @@ esc_events_to_bitmap(const esc_event_type_t *events, size_t count,
 
 		/* Validate bit position */
 		if (bit >= 128) {
-			ESC_WARN("event type 0x%x has bit %d >= 128", ev, bit);
+			OES_WARN("event type 0x%x has bit %d >= 128", ev, bit);
 			valid = false;
 			continue;
 		}
 
-		base = ESC_EVENT_IS_NOTIFY(ev) ? 2 : 0;
+		base = OES_EVENT_IS_NOTIFY(ev) ? 2 : 0;
 		word = bit / 64;
 		shift = bit % 64;
 		bitmap[base + word] |= (1ULL << shift);
@@ -1222,7 +1222,7 @@ esc_events_to_bitmap(const esc_event_type_t *events, size_t count,
 
 /* bitmap[0,1]=AUTH, bitmap[2,3]=NOTIFY */
 static size_t
-esc_bitmap_to_events(const uint64_t bitmap[4], esc_event_type_t *events,
+oes_bitmap_to_events(const uint64_t bitmap[4], oes_event_type_t *events,
     size_t maxcount)
 {
 	size_t count = 0;
@@ -1250,26 +1250,26 @@ esc_bitmap_to_events(const uint64_t bitmap[4], esc_event_type_t *events,
 }
 
 int
-esc_client_mute_events(struct esc_client *ec, esc_proc_token_t *token,
-    uint32_t flags, const esc_event_type_t *events, size_t count)
+oes_client_mute_events(struct oes_client *ec, oes_proc_token_t *token,
+    uint32_t flags, const oes_event_type_t *events, size_t count)
 {
-	struct esc_mute_entry *em;
+	struct oes_mute_entry *em;
 	uint64_t bitmap[4];
 	int error;
 
-	if (count == 0 || count > ESC_MAX_MUTE_EVENTS)
+	if (count == 0 || count > OES_MAX_MUTE_EVENTS)
 		return (EINVAL);
 
-	if (!esc_events_to_bitmap(events, count, bitmap))
+	if (!oes_events_to_bitmap(events, count, bitmap))
 		return (EINVAL);  /* Invalid event type in list */
 
 	/* Self-mute with specific events */
-	if (flags & ESC_MUTE_SELF) {
+	if (flags & OES_MUTE_SELF) {
 		EC_LOCK(ec);
 
 		/* Find existing entry for self (use owner_pid to match enforcement) */
 		LIST_FOREACH(em,
-		    &ec->ec_muted[esc_mute_proc_bucket(ec->ec_owner_pid)],
+		    &ec->ec_muted[oes_mute_proc_bucket(ec->ec_owner_pid)],
 		    em_link) {
 			if (em->em_pid == ec->ec_owner_pid) {
 				/*
@@ -1292,7 +1292,7 @@ esc_client_mute_events(struct esc_client *ec, esc_proc_token_t *token,
 		}
 
 		/* Create new entry for self - check limit first */
-		if (ec->ec_muted_proc_count >= ESC_MUTE_PROC_MAX) {
+		if (ec->ec_muted_proc_count >= OES_MUTE_PROC_MAX) {
 			EC_UNLOCK(ec);
 			return (ENOSPC);
 		}
@@ -1307,7 +1307,7 @@ esc_client_mute_events(struct esc_client *ec, esc_proc_token_t *token,
 		em->em_genid = ec->ec_owner_genid;
 		memcpy(em->em_events, bitmap, sizeof(em->em_events));
 		LIST_INSERT_HEAD(
-		    &ec->ec_muted[esc_mute_proc_bucket(ec->ec_owner_pid)],
+		    &ec->ec_muted[oes_mute_proc_bucket(ec->ec_owner_pid)],
 		    em, em_link);
 		ec->ec_muted_proc_count++;
 
@@ -1315,14 +1315,14 @@ esc_client_mute_events(struct esc_client *ec, esc_proc_token_t *token,
 		return (0);
 	}
 
-	error = esc_client_validate_token(token);
+	error = oes_client_validate_token(token);
 	if (error != 0)
 		return (error);
 
 	EC_LOCK(ec);
 
 	/* Find existing entry or create new one, handling PID reuse */
-	LIST_FOREACH(em, &ec->ec_muted[esc_mute_proc_bucket(token->ept_id)],
+	LIST_FOREACH(em, &ec->ec_muted[oes_mute_proc_bucket(token->ept_id)],
 	    em_link) {
 		if (em->em_pid == (pid_t)token->ept_id) {
 			if (em->em_genid != token->ept_genid) {
@@ -1354,7 +1354,7 @@ esc_client_mute_events(struct esc_client *ec, esc_proc_token_t *token,
 	}
 
 	/* Create new entry - check limit first */
-	if (ec->ec_muted_proc_count >= ESC_MUTE_PROC_MAX) {
+	if (ec->ec_muted_proc_count >= OES_MUTE_PROC_MAX) {
 		EC_UNLOCK(ec);
 		return (ENOSPC);
 	}
@@ -1368,7 +1368,7 @@ esc_client_mute_events(struct esc_client *ec, esc_proc_token_t *token,
 	em->em_pid = (pid_t)token->ept_id;
 	em->em_genid = token->ept_genid;
 	memcpy(em->em_events, bitmap, sizeof(em->em_events));
-	LIST_INSERT_HEAD(&ec->ec_muted[esc_mute_proc_bucket(token->ept_id)],
+	LIST_INSERT_HEAD(&ec->ec_muted[oes_mute_proc_bucket(token->ept_id)],
 	    em, em_link);
 	ec->ec_muted_proc_count++;
 
@@ -1377,27 +1377,27 @@ esc_client_mute_events(struct esc_client *ec, esc_proc_token_t *token,
 }
 
 int
-esc_client_unmute_events(struct esc_client *ec, esc_proc_token_t *token,
-    uint32_t flags, const esc_event_type_t *events, size_t count)
+oes_client_unmute_events(struct oes_client *ec, oes_proc_token_t *token,
+    uint32_t flags, const oes_event_type_t *events, size_t count)
 {
-	struct esc_mute_entry *em;
+	struct oes_mute_entry *em;
 	uint64_t bitmap[4];
 
-	if (count == 0 || count > ESC_MAX_MUTE_EVENTS)
+	if (count == 0 || count > OES_MAX_MUTE_EVENTS)
 		return (EINVAL);
 
-	if (!esc_events_to_bitmap(events, count, bitmap))
+	if (!oes_events_to_bitmap(events, count, bitmap))
 		return (EINVAL);  /* Invalid event type in list */
 
 	/* Self-unmute: clear events from list entry */
-	if (flags & ESC_MUTE_SELF) {
-		struct esc_mute_entry *em_tmp;
+	if (flags & OES_MUTE_SELF) {
+		struct oes_mute_entry *em_tmp;
 
 		EC_LOCK(ec);
 
 		/* Use owner_pid to match enforcement check */
 		LIST_FOREACH_SAFE(em,
-		    &ec->ec_muted[esc_mute_proc_bucket(ec->ec_owner_pid)],
+		    &ec->ec_muted[oes_mute_proc_bucket(ec->ec_owner_pid)],
 		    em_link, em_tmp) {
 			if (em->em_pid == ec->ec_owner_pid) {
 				/*
@@ -1444,7 +1444,7 @@ esc_client_unmute_events(struct esc_client *ec, esc_proc_token_t *token,
 
 	EC_LOCK(ec);
 
-	LIST_FOREACH(em, &ec->ec_muted[esc_mute_proc_bucket(token->ept_id)],
+	LIST_FOREACH(em, &ec->ec_muted[oes_mute_proc_bucket(token->ept_id)],
 	    em_link) {
 		if (em->em_pid == (pid_t)token->ept_id &&
 		    (em->em_genid == 0 || em->em_genid == token->ept_genid)) {
@@ -1483,11 +1483,11 @@ esc_client_unmute_events(struct esc_client *ec, esc_proc_token_t *token,
 }
 
 int
-esc_client_mute_path_events(struct esc_client *ec, const char *path,
-    uint32_t type, bool target, const esc_event_type_t *events, size_t count)
+oes_client_mute_path_events(struct oes_client *ec, const char *path,
+    uint32_t type, bool target, const oes_event_type_t *events, size_t count)
 {
-	struct esc_mute_path_entry *emp;
-	struct esc_mute_path_list *list;
+	struct oes_mute_path_entry *emp;
+	struct oes_mute_path_list *list;
 	struct nameidata nd;
 	struct vattr va;
 	uint64_t bitmap[4];
@@ -1495,17 +1495,17 @@ esc_client_mute_path_events(struct esc_client *ec, const char *path,
 	bool has_token = false;
 	size_t len;
 
-	if (path == NULL || count == 0 || count > ESC_MAX_MUTE_EVENTS)
+	if (path == NULL || count == 0 || count > OES_MAX_MUTE_EVENTS)
 		return (EINVAL);
 
 	len = strnlen(path, MAXPATHLEN);
 	if (len == 0 || len >= MAXPATHLEN)
 		return (EINVAL);
 
-	if (type != ESC_MUTE_PATH_LITERAL && type != ESC_MUTE_PATH_PREFIX)
+	if (type != OES_MUTE_PATH_LITERAL && type != OES_MUTE_PATH_PREFIX)
 		return (EINVAL);
 
-	if (!esc_events_to_bitmap(events, count, bitmap))
+	if (!oes_events_to_bitmap(events, count, bitmap))
 		return (EINVAL);  /* Invalid event type in list */
 
 	/*
@@ -1514,7 +1514,7 @@ esc_client_mute_path_events(struct esc_client *ec, const char *path,
 	 * path resolution fails (e.g., locked vnodes).
 	 * Only attempt for literal full paths (starting with /).
 	 */
-	if (type == ESC_MUTE_PATH_LITERAL && path[0] == '/') {
+	if (type == OES_MUTE_PATH_LITERAL && path[0] == '/') {
 		NDINIT(&nd, LOOKUP, FOLLOW | LOCKLEAF, UIO_SYSSPACE, path);
 		if (namei(&nd) == 0) {
 			if (VOP_GETATTR(nd.ni_vp, &va,
@@ -1557,12 +1557,12 @@ esc_client_mute_path_events(struct esc_client *ec, const char *path,
 
 	/* Create new entry - check limit first */
 	if (target) {
-		if (ec->ec_muted_target_count >= ESC_MUTE_PATH_MAX) {
+		if (ec->ec_muted_target_count >= OES_MUTE_PATH_MAX) {
 			EC_UNLOCK(ec);
 			return (ENOSPC);
 		}
 	} else {
-		if (ec->ec_muted_path_count >= ESC_MUTE_PATH_MAX) {
+		if (ec->ec_muted_path_count >= OES_MUTE_PATH_MAX) {
 			EC_UNLOCK(ec);
 			return (ENOSPC);
 		}
@@ -1593,25 +1593,25 @@ esc_client_mute_path_events(struct esc_client *ec, const char *path,
 }
 
 int
-esc_client_unmute_path_events(struct esc_client *ec, const char *path,
-    uint32_t type, bool target, const esc_event_type_t *events, size_t count)
+oes_client_unmute_path_events(struct oes_client *ec, const char *path,
+    uint32_t type, bool target, const oes_event_type_t *events, size_t count)
 {
-	struct esc_mute_path_entry *emp;
-	struct esc_mute_path_list *list;
+	struct oes_mute_path_entry *emp;
+	struct oes_mute_path_list *list;
 	uint64_t bitmap[4];
 	size_t len;
 
-	if (path == NULL || count == 0 || count > ESC_MAX_MUTE_EVENTS)
+	if (path == NULL || count == 0 || count > OES_MAX_MUTE_EVENTS)
 		return (EINVAL);
 
 	len = strnlen(path, MAXPATHLEN);
 	if (len == 0 || len >= MAXPATHLEN)
 		return (EINVAL);
 
-	if (type != ESC_MUTE_PATH_LITERAL && type != ESC_MUTE_PATH_PREFIX)
+	if (type != OES_MUTE_PATH_LITERAL && type != OES_MUTE_PATH_PREFIX)
 		return (EINVAL);
 
-	if (!esc_events_to_bitmap(events, count, bitmap))
+	if (!oes_events_to_bitmap(events, count, bitmap))
 		return (EINVAL);  /* Invalid event type in list */
 	list = target ? &ec->ec_muted_targets : &ec->ec_muted_paths;
 
@@ -1658,17 +1658,17 @@ esc_client_unmute_path_events(struct esc_client *ec, const char *path,
 }
 
 int
-esc_client_get_muted_processes(struct esc_client *ec,
-    struct esc_muted_process_entry *entries, size_t count, size_t *actual)
+oes_client_get_muted_processes(struct oes_client *ec,
+    struct oes_muted_process_entry *entries, size_t count, size_t *actual)
 {
-	struct esc_mute_entry *em;
+	struct oes_mute_entry *em;
 	size_t i = 0;
 	int bucket;
 
 	EC_LOCK(ec);
 
 	/* Iterate all hash buckets to collect all muted processes */
-	for (bucket = 0; bucket < ESC_MUTE_PROC_BUCKETS; bucket++) {
+	for (bucket = 0; bucket < OES_MUTE_PROC_BUCKETS; bucket++) {
 		LIST_FOREACH(em, &ec->ec_muted[bucket], em_link) {
 			if (i < count && entries != NULL) {
 				entries[i].emp_token.ept_id = em->em_pid;
@@ -1679,9 +1679,9 @@ esc_client_get_muted_processes(struct esc_client *ec,
 				    em->em_events[2] == 0 && em->em_events[3] == 0) {
 					entries[i].emp_event_count = 0;
 				} else {
-					entries[i].emp_event_count = esc_bitmap_to_events(
+					entries[i].emp_event_count = oes_bitmap_to_events(
 					    em->em_events, entries[i].emp_events,
-					    ESC_MAX_MUTE_EVENTS);
+					    OES_MAX_MUTE_EVENTS);
 				}
 			}
 			i++;
@@ -1695,12 +1695,12 @@ esc_client_get_muted_processes(struct esc_client *ec,
 }
 
 int
-esc_client_get_muted_paths(struct esc_client *ec,
-    struct esc_muted_path_entry *entries, size_t count, size_t *actual,
+oes_client_get_muted_paths(struct oes_client *ec,
+    struct oes_muted_path_entry *entries, size_t count, size_t *actual,
     bool target)
 {
-	struct esc_mute_path_entry *emp;
-	struct esc_mute_path_list *list;
+	struct oes_mute_path_entry *emp;
+	struct oes_mute_path_list *list;
 	size_t i = 0;
 
 	list = target ? &ec->ec_muted_targets : &ec->ec_muted_paths;
@@ -1712,16 +1712,16 @@ esc_client_get_muted_paths(struct esc_client *ec,
 			strlcpy(entries[i].emp_path, emp->emp_path,
 			    sizeof(entries[i].emp_path));
 			entries[i].emp_type = emp->emp_type;
-			entries[i].emp_flags = target ? ESC_MUTE_PATH_FLAG_TARGET : 0;
+			entries[i].emp_flags = target ? OES_MUTE_PATH_FLAG_TARGET : 0;
 
 			/* Check if all events muted */
 			if (emp->emp_events[0] == 0 && emp->emp_events[1] == 0 &&
 			    emp->emp_events[2] == 0 && emp->emp_events[3] == 0) {
 				entries[i].emp_event_count = 0;
 			} else {
-				entries[i].emp_event_count = esc_bitmap_to_events(
+				entries[i].emp_event_count = oes_bitmap_to_events(
 				    emp->emp_events, entries[i].emp_events,
-				    ESC_MAX_MUTE_EVENTS);
+				    OES_MAX_MUTE_EVENTS);
 			}
 		}
 		i++;
@@ -1734,9 +1734,9 @@ esc_client_get_muted_paths(struct esc_client *ec,
 }
 
 void
-esc_client_unmute_all_processes(struct esc_client *ec)
+oes_client_unmute_all_processes(struct oes_client *ec)
 {
-	struct esc_mute_entry *em, *em_tmp;
+	struct oes_mute_entry *em, *em_tmp;
 	int i;
 
 	EC_LOCK(ec);
@@ -1745,7 +1745,7 @@ esc_client_unmute_all_processes(struct esc_client *ec)
 	ec->ec_flags &= ~EC_FLAG_MUTED_SELF;
 
 	/* Free all muted process entries from all hash buckets */
-	for (i = 0; i < ESC_MUTE_PROC_BUCKETS; i++) {
+	for (i = 0; i < OES_MUTE_PROC_BUCKETS; i++) {
 		LIST_FOREACH_SAFE(em, &ec->ec_muted[i], em_link, em_tmp) {
 			LIST_REMOVE(em, em_link);
 			free(em, M_ESC);
@@ -1757,10 +1757,10 @@ esc_client_unmute_all_processes(struct esc_client *ec)
 }
 
 void
-esc_client_unmute_all_paths(struct esc_client *ec, bool target)
+oes_client_unmute_all_paths(struct oes_client *ec, bool target)
 {
-	struct esc_mute_path_entry *emp, *emp_tmp;
-	struct esc_mute_path_list *list;
+	struct oes_mute_path_entry *emp, *emp_tmp;
+	struct oes_mute_path_list *list;
 
 	list = target ? &ec->ec_muted_targets : &ec->ec_muted_paths;
 
@@ -1779,9 +1779,9 @@ esc_client_unmute_all_paths(struct esc_client *ec, bool target)
 }
 
 int
-esc_client_mute_uid(struct esc_client *ec, uid_t uid)
+oes_client_mute_uid(struct oes_client *ec, uid_t uid)
 {
-	struct esc_mute_uid_entry *emu;
+	struct oes_mute_uid_entry *emu;
 
 	EC_LOCK(ec);
 
@@ -1794,7 +1794,7 @@ esc_client_mute_uid(struct esc_client *ec, uid_t uid)
 	}
 
 	/* Check limit */
-	if (ec->ec_muted_uid_count >= ESC_MUTE_UID_MAX) {
+	if (ec->ec_muted_uid_count >= OES_MUTE_UID_MAX) {
 		EC_UNLOCK(ec);
 		return (ENOSPC);
 	}
@@ -1815,9 +1815,9 @@ esc_client_mute_uid(struct esc_client *ec, uid_t uid)
 }
 
 int
-esc_client_unmute_uid(struct esc_client *ec, uid_t uid)
+oes_client_unmute_uid(struct oes_client *ec, uid_t uid)
 {
-	struct esc_mute_uid_entry *emu, *emu_tmp;
+	struct oes_mute_uid_entry *emu, *emu_tmp;
 
 	EC_LOCK(ec);
 
@@ -1836,9 +1836,9 @@ esc_client_unmute_uid(struct esc_client *ec, uid_t uid)
 }
 
 int
-esc_client_mute_gid(struct esc_client *ec, gid_t gid)
+oes_client_mute_gid(struct oes_client *ec, gid_t gid)
 {
-	struct esc_mute_gid_entry *emg;
+	struct oes_mute_gid_entry *emg;
 
 	EC_LOCK(ec);
 
@@ -1851,7 +1851,7 @@ esc_client_mute_gid(struct esc_client *ec, gid_t gid)
 	}
 
 	/* Check limit */
-	if (ec->ec_muted_gid_count >= ESC_MUTE_GID_MAX) {
+	if (ec->ec_muted_gid_count >= OES_MUTE_GID_MAX) {
 		EC_UNLOCK(ec);
 		return (ENOSPC);
 	}
@@ -1872,9 +1872,9 @@ esc_client_mute_gid(struct esc_client *ec, gid_t gid)
 }
 
 int
-esc_client_unmute_gid(struct esc_client *ec, gid_t gid)
+oes_client_unmute_gid(struct oes_client *ec, gid_t gid)
 {
-	struct esc_mute_gid_entry *emg, *emg_tmp;
+	struct oes_mute_gid_entry *emg, *emg_tmp;
 
 	EC_LOCK(ec);
 
@@ -1893,9 +1893,9 @@ esc_client_unmute_gid(struct esc_client *ec, gid_t gid)
 }
 
 void
-esc_client_unmute_all_uids(struct esc_client *ec)
+oes_client_unmute_all_uids(struct oes_client *ec)
 {
-	struct esc_mute_uid_entry *emu, *emu_tmp;
+	struct oes_mute_uid_entry *emu, *emu_tmp;
 
 	EC_LOCK(ec);
 	LIST_FOREACH_SAFE(emu, &ec->ec_muted_uids, emu_link, emu_tmp) {
@@ -1907,9 +1907,9 @@ esc_client_unmute_all_uids(struct esc_client *ec)
 }
 
 void
-esc_client_unmute_all_gids(struct esc_client *ec)
+oes_client_unmute_all_gids(struct oes_client *ec)
 {
-	struct esc_mute_gid_entry *emg, *emg_tmp;
+	struct oes_mute_gid_entry *emg, *emg_tmp;
 
 	EC_LOCK(ec);
 	LIST_FOREACH_SAFE(emg, &ec->ec_muted_gids, emg_link, emg_tmp) {
@@ -1922,9 +1922,9 @@ esc_client_unmute_all_gids(struct esc_client *ec)
 
 /* Caller must hold EC_LOCK */
 bool
-esc_client_is_uid_muted(struct esc_client *ec, uid_t uid)
+oes_client_is_uid_muted(struct oes_client *ec, uid_t uid)
 {
-	struct esc_mute_uid_entry *emu;
+	struct oes_mute_uid_entry *emu;
 
 	EC_LOCK_ASSERT(ec);
 
@@ -1937,9 +1937,9 @@ esc_client_is_uid_muted(struct esc_client *ec, uid_t uid)
 
 /* Caller must hold EC_LOCK */
 bool
-esc_client_is_gid_muted(struct esc_client *ec, gid_t gid)
+oes_client_is_gid_muted(struct oes_client *ec, gid_t gid)
 {
-	struct esc_mute_gid_entry *emg;
+	struct oes_mute_gid_entry *emg;
 
 	EC_LOCK_ASSERT(ec);
 
@@ -1951,7 +1951,7 @@ esc_client_is_gid_muted(struct esc_client *ec, gid_t gid)
 }
 
 void
-esc_fill_process(esc_process_t *ep, struct proc *p, struct ucred *cred_override)
+oes_fill_process(oes_process_t *ep, struct proc *p, struct ucred *cred_override)
 {
 	struct ucred *cred;
 	struct session *sess;
@@ -1965,14 +1965,14 @@ esc_fill_process(esc_process_t *ep, struct proc *p, struct ucred *cred_override)
 
 	/* Process token: pid + start time for unique identity */
 	ep->ep_token.ept_id = p->p_pid;
-	ep->ep_token.ept_genid = esc_proc_genid(p);  /* sec*1000000 + usec */
+	ep->ep_token.ept_genid = oes_proc_genid(p);  /* sec*1000000 + usec */
 	if (p->p_stats != NULL) {
 		ep->ep_start_sec = p->p_stats->p_start.tv_sec;
 		ep->ep_start_usec = p->p_stats->p_start.tv_usec;
 	}
 
 	/* Execution ID: same across fork, changes on exec */
-	ep->ep_exec_id = esc_proc_get_exec_id(p);
+	ep->ep_exec_id = oes_proc_get_exec_id(p);
 
 	/* Basic process IDs */
 	ep->ep_pid = p->p_pid;
@@ -2084,7 +2084,7 @@ esc_fill_process(esc_process_t *ep, struct proc *p, struct ucred *cred_override)
  * credential changes or delegated operations.
  */
 void
-esc_fill_file(esc_file_t *ef, struct vnode *vp, struct ucred *cred)
+oes_fill_file(oes_file_t *ef, struct vnode *vp, struct ucred *cred)
 {
 	struct vattr va;
 	struct mount *mp;
@@ -2096,7 +2096,7 @@ esc_fill_file(esc_file_t *ef, struct vnode *vp, struct ucred *cred)
 		return;
 
 	/* File type from vnode */
-	ef->ef_type = esc_vtype_to_eftype(vp->v_type);
+	ef->ef_type = oes_vtype_to_eftype(vp->v_type);
 
 	/* Create token from inode + device */
 	ef->ef_token.eft_id = 0;

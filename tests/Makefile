@@ -1,6 +1,6 @@
-# ESC Test Suite Makefile
+# OES Test Suite Makefile
 #
-# Build and run tests for the ESC kernel module
+# Build and run tests for the OES kernel module
 
 CC?=		cc
 CFLAGS=		-Wall -Wextra -I../sys
@@ -62,10 +62,10 @@ test_extattr_acl_events: test_extattr_acl_events.c
 clean:
 	rm -f $(TESTS)
 
-# Run all tests (requires root and loaded esc module)
+# Run all tests (requires root and loaded oes module)
 run: all
-	@echo "=== Running ESC Test Suite ==="
-	@echo "Note: Tests require root and loaded esc module"
+	@echo "=== Running OES Test Suite ==="
+	@echo "Note: Tests require root and loaded oes module"
 	@echo ""
 	@for t in $(TESTS); do \
 		echo "--- Running $$t ---"; \

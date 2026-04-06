@@ -6,29 +6,29 @@
 #endif
 
 BEGIN {
-	printf("esc read/write workflow\n");
+	printf("oes read/write workflow\n");
 }
 
-fbt::esc_read:entry
+fbt::oes_read:entry
 {
 	read++;
 	self->read = 1;
 }
 
-fbt::esc_event_dequeue:entry
+fbt::oes_event_dequeue:entry
 /self->read/
 {
 	dequeue++;
 	self->read = 0;
 }
 
-fbt::esc_write:entry
+fbt::oes_write:entry
 {
 	write++;
 	self->write = 1;
 }
 
-fbt::esc_event_respond:entry
+fbt::oes_event_respond:entry
 /self->write/
 {
 	respond++;

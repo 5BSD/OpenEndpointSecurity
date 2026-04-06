@@ -1,5 +1,5 @@
 /*
- * ESC decision cache test.
+ * OES decision cache test.
  */
 #include <sys/ioctl.h>
 #include <sys/poll.h>
@@ -14,23 +14,23 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 static int
 respond_allow(int fd, uint64_t msg_id)
 {
-	esc_response_t resp;
+	oes_response_t resp;
 
 	memset(&resp, 0, sizeof(resp));
 	resp.er_id = msg_id;
-	resp.er_result = ESC_AUTH_ALLOW;
+	resp.er_result = OES_AUTH_ALLOW;
 	if (write(fd, &resp, sizeof(resp)) != (ssize_t)sizeof(resp))
 		return (-1);
 	return (0);
 }
 
 static int
-wait_for_open_event(int fd, pid_t pid, int timeout_ms, esc_message_t *out)
+wait_for_open_event(int fd, pid_t pid, int timeout_ms, oes_message_t *out)
 {
 	struct pollfd pfd;
 	struct timespec start;
@@ -50,7 +50,7 @@ wait_for_open_event(int fd, pid_t pid, int timeout_ms, esc_message_t *out)
 			break;
 
 		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			esc_message_t msg;
+			oes_message_t msg;
 			ssize_t n = read(fd, &msg, sizeof(msg));
 			if (n < 0) {
 				if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -60,14 +60,14 @@ wait_for_open_event(int fd, pid_t pid, int timeout_ms, esc_message_t *out)
 			}
 			if ((size_t)n != sizeof(msg))
 				continue;
-			if (msg.em_action == ESC_ACTION_AUTH &&
-			    msg.em_event == ESC_EVENT_AUTH_OPEN &&
+			if (msg.em_action == OES_ACTION_AUTH &&
+			    msg.em_event == OES_EVENT_AUTH_OPEN &&
 			    msg.em_process.ep_pid == pid) {
 				if (out != NULL)
 					*out = msg;
 				return (0);
 			}
-			if (msg.em_action == ESC_ACTION_AUTH)
+			if (msg.em_action == OES_ACTION_AUTH)
 				(void)respond_allow(fd, msg.em_id);
 		}
 	}
@@ -96,7 +96,7 @@ wait_for_no_open_event(int fd, pid_t pid, int timeout_ms)
 			break;
 
 		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			esc_message_t msg;
+			oes_message_t msg;
 			ssize_t n = read(fd, &msg, sizeof(msg));
 			if (n < 0) {
 				if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -106,13 +106,13 @@ wait_for_no_open_event(int fd, pid_t pid, int timeout_ms)
 			}
 			if ((size_t)n != sizeof(msg))
 				continue;
-			if (msg.em_action == ESC_ACTION_AUTH &&
-			    msg.em_event == ESC_EVENT_AUTH_OPEN &&
+			if (msg.em_action == OES_ACTION_AUTH &&
+			    msg.em_event == OES_EVENT_AUTH_OPEN &&
 			    msg.em_process.ep_pid == pid) {
 				(void)respond_allow(fd, msg.em_id);
 				return (1);
 			}
-			if (msg.em_action == ESC_ACTION_AUTH)
+			if (msg.em_action == OES_ACTION_AUTH)
 				(void)respond_allow(fd, msg.em_id);
 		}
 	}
@@ -169,10 +169,10 @@ int
 main(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = {
-		ESC_EVENT_AUTH_OPEN,
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = {
+		OES_EVENT_AUTH_OPEN,
 	};
 	int ctl_pipe[2];
 	int res_pipe[2];
@@ -180,22 +180,22 @@ main(void)
 	int status;
 	int child_err;
 	char cmd;
-	esc_message_t msg;
-	esc_cache_entry_t entry;
-	esc_cache_key_t key;
-	struct esc_stats stats;
+	oes_message_t msg;
+	oes_cache_entry_t entry;
+	oes_cache_key_t key;
+	struct oes_stats stats;
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_AUTH;
+	mode.ema_mode = OES_MODE_AUTH;
 	mode.ema_timeout_ms = 500;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -203,9 +203,9 @@ main(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = sizeof(events) / sizeof(events[0]);
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -272,14 +272,14 @@ main(void)
 	}
 
 	memset(&entry, 0, sizeof(entry));
-	entry.ece_key.eck_event = ESC_EVENT_AUTH_OPEN;
-	entry.ece_key.eck_flags = ESC_CACHE_KEY_PROCESS | ESC_CACHE_KEY_FILE;
+	entry.ece_key.eck_event = OES_EVENT_AUTH_OPEN;
+	entry.ece_key.eck_flags = OES_CACHE_KEY_PROCESS | OES_CACHE_KEY_FILE;
 	entry.ece_key.eck_process = msg.em_process.ep_token;
 	entry.ece_key.eck_file = msg.em_event_data.open.file.ef_token;
-	entry.ece_result = ESC_AUTH_ALLOW;
+	entry.ece_result = OES_AUTH_ALLOW;
 	entry.ece_ttl_ms = 300;
-	if (ioctl(fd, ESC_IOC_CACHE_ADD, &entry) < 0) {
-		perror("ESC_IOC_CACHE_ADD allow");
+	if (ioctl(fd, OES_IOC_CACHE_ADD, &entry) < 0) {
+		perror("OES_IOC_CACHE_ADD allow");
 		goto fail;
 	}
 
@@ -296,8 +296,8 @@ main(void)
 	}
 
 	memset(&stats, 0, sizeof(stats));
-	if (ioctl(fd, ESC_IOC_GET_STATS, &stats) < 0) {
-		perror("ESC_IOC_GET_STATS");
+	if (ioctl(fd, OES_IOC_GET_STATS, &stats) < 0) {
+		perror("OES_IOC_GET_STATS");
 		goto fail;
 	}
 	if (stats.es_cache_hits < 1 || stats.es_cache_entries < 1) {
@@ -326,14 +326,14 @@ main(void)
 	}
 
 	memset(&entry, 0, sizeof(entry));
-	entry.ece_key.eck_event = ESC_EVENT_AUTH_OPEN;
-	entry.ece_key.eck_flags = ESC_CACHE_KEY_PROCESS | ESC_CACHE_KEY_FILE;
+	entry.ece_key.eck_event = OES_EVENT_AUTH_OPEN;
+	entry.ece_key.eck_flags = OES_CACHE_KEY_PROCESS | OES_CACHE_KEY_FILE;
 	entry.ece_key.eck_process = msg.em_process.ep_token;
 	entry.ece_key.eck_file = msg.em_event_data.open.file.ef_token;
-	entry.ece_result = ESC_AUTH_DENY;
+	entry.ece_result = OES_AUTH_DENY;
 	entry.ece_ttl_ms = 500;
-	if (ioctl(fd, ESC_IOC_CACHE_ADD, &entry) < 0) {
-		perror("ESC_IOC_CACHE_ADD deny");
+	if (ioctl(fd, OES_IOC_CACHE_ADD, &entry) < 0) {
+		perror("OES_IOC_CACHE_ADD deny");
 		goto fail;
 	}
 
@@ -350,8 +350,8 @@ main(void)
 	}
 
 	key = entry.ece_key;
-	if (ioctl(fd, ESC_IOC_CACHE_REMOVE, &key) < 0) {
-		perror("ESC_IOC_CACHE_REMOVE");
+	if (ioctl(fd, OES_IOC_CACHE_REMOVE, &key) < 0) {
+		perror("OES_IOC_CACHE_REMOVE");
 		goto fail;
 	}
 
@@ -371,8 +371,8 @@ main(void)
 		goto fail;
 	}
 
-	if (ioctl(fd, ESC_IOC_CACHE_CLEAR) < 0) {
-		perror("ESC_IOC_CACHE_CLEAR");
+	if (ioctl(fd, OES_IOC_CACHE_CLEAR) < 0) {
+		perror("OES_IOC_CACHE_CLEAR");
 		goto fail;
 	}
 

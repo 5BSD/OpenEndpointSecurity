@@ -1,5 +1,5 @@
 /*
- * ESC file descriptor handling tests.
+ * OES file descriptor handling tests.
  *
  * Tests fd leak detection, close-on-exec, dup() scenarios.
  */
@@ -13,7 +13,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 static int
 test_close_on_exec(void)
@@ -24,9 +24,9 @@ test_close_on_exec(void)
 
 	printf("  Testing O_CLOEXEC behavior...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
@@ -63,21 +63,21 @@ static int
 test_dup_fd(void)
 {
 	int fd, fd2;
-	struct esc_mode_args mode;
+	struct oes_mode_args mode;
 
 	printf("  Testing dup() behavior...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	/* Set mode on original fd */
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -106,16 +106,16 @@ static int
 test_multiple_opens(void)
 {
 	int fds[10];
-	struct esc_mode_args mode;
+	struct oes_mode_args mode;
 	int i;
 
 	printf("  Testing multiple simultaneous opens...\n");
 
 	/* Open multiple handles */
 	for (i = 0; i < 10; i++) {
-		fds[i] = open("/dev/esc", O_RDWR | O_NONBLOCK);
+		fds[i] = open("/dev/oes", O_RDWR | O_NONBLOCK);
 		if (fds[i] < 0) {
-			perror("open /dev/esc");
+			perror("open /dev/oes");
 			while (--i >= 0)
 				close(fds[i]);
 			return (1);
@@ -125,9 +125,9 @@ test_multiple_opens(void)
 	/* Configure each as a different mode */
 	for (i = 0; i < 10; i++) {
 		memset(&mode, 0, sizeof(mode));
-		mode.ema_mode = (i % 2 == 0) ? ESC_MODE_NOTIFY : ESC_MODE_AUTH;
-		if (ioctl(fds[i], ESC_IOC_SET_MODE, &mode) < 0) {
-			perror("ESC_IOC_SET_MODE");
+		mode.ema_mode = (i % 2 == 0) ? OES_MODE_NOTIFY : OES_MODE_AUTH;
+		if (ioctl(fds[i], OES_IOC_SET_MODE, &mode) < 0) {
+			perror("OES_IOC_SET_MODE");
 			for (int j = 0; j < 10; j++)
 				close(fds[j]);
 			return (1);
@@ -146,26 +146,26 @@ static int
 test_close_while_subscribed(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = {
-		ESC_EVENT_NOTIFY_EXEC,
-		ESC_EVENT_NOTIFY_FORK,
-		ESC_EVENT_NOTIFY_EXIT,
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = {
+		OES_EVENT_NOTIFY_EXEC,
+		OES_EVENT_NOTIFY_FORK,
+		OES_EVENT_NOTIFY_EXIT,
 	};
 
 	printf("  Testing close while subscribed...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -173,9 +173,9 @@ test_close_while_subscribed(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = sizeof(events) / sizeof(events[0]);
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -193,20 +193,20 @@ test_fork_with_fd(void)
 	int fd;
 	pid_t pid;
 	int status;
-	struct esc_mode_args mode;
+	struct oes_mode_args mode;
 
 	printf("  Testing fork with open fd...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}

@@ -6,20 +6,20 @@
 #endif
 
 BEGIN {
-	printf("esc auth timeout workflow\n");
+	printf("oes auth timeout workflow\n");
 }
 
-fbt::esc_set_auth_deadline:entry
+fbt::oes_set_auth_deadline:entry
 {
 	set_deadline++;
 }
 
-fbt::esc_event_handle_timeout:entry
+fbt::oes_event_handle_timeout:entry
 {
 	handle_timeout++;
 }
 
-fbt::esc_auth_group_mark_response:entry
+fbt::oes_auth_group_mark_response:entry
 {
 	mark_response++;
 }

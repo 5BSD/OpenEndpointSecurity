@@ -6,25 +6,25 @@
 #endif
 
 BEGIN {
-	printf("esc decision cache workflow\n");
+	printf("oes decision cache workflow\n");
 }
 
-fbt::esc_client_cache_add:entry
+fbt::oes_client_cache_add:entry
 {
 	cache_add++;
 }
 
-fbt::esc_client_cache_lookup:entry
+fbt::oes_client_cache_lookup:entry
 {
 	cache_lookup++;
 }
 
-fbt::esc_client_cache_remove:entry
+fbt::oes_client_cache_remove:entry
 {
 	cache_remove++;
 }
 
-fbt::esc_client_cache_clear:entry
+fbt::oes_client_cache_clear:entry
 {
 	cache_clear++;
 }

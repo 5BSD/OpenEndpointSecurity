@@ -1,5 +1,5 @@
 /*
- * ESC vnode event smoke test for common VFS operations.
+ * OES vnode event smoke test for common VFS operations.
  */
 #include <sys/ioctl.h>
 #include <sys/poll.h>
@@ -19,7 +19,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 #define EVT_OPEN		(1u << 0)
 #define EVT_CREATE		(1u << 1)
@@ -50,7 +50,7 @@
 static int
 read_events(int fd, pid_t child_pid, uint64_t *seen_mask)
 {
-	esc_message_t msg;
+	oes_message_t msg;
 	ssize_t n;
 
 	for (;;) {
@@ -70,79 +70,79 @@ read_events(int fd, pid_t child_pid, uint64_t *seen_mask)
 			continue;
 
 		switch (msg.em_event) {
-		case ESC_EVENT_NOTIFY_OPEN:
+		case OES_EVENT_NOTIFY_OPEN:
 			*seen_mask |= EVT_OPEN;
 			break;
-		case ESC_EVENT_NOTIFY_CREATE:
+		case OES_EVENT_NOTIFY_CREATE:
 			*seen_mask |= EVT_CREATE;
 			break;
-		case ESC_EVENT_NOTIFY_UNLINK:
+		case OES_EVENT_NOTIFY_UNLINK:
 			*seen_mask |= EVT_UNLINK;
 			break;
-		case ESC_EVENT_NOTIFY_RENAME:
+		case OES_EVENT_NOTIFY_RENAME:
 			*seen_mask |= EVT_RENAME;
 			break;
-		case ESC_EVENT_NOTIFY_ACCESS:
+		case OES_EVENT_NOTIFY_ACCESS:
 			*seen_mask |= EVT_ACCESS;
 			break;
-		case ESC_EVENT_NOTIFY_READ:
+		case OES_EVENT_NOTIFY_READ:
 			*seen_mask |= EVT_READ;
 			break;
-		case ESC_EVENT_NOTIFY_WRITE:
+		case OES_EVENT_NOTIFY_WRITE:
 			*seen_mask |= EVT_WRITE;
 			break;
-		case ESC_EVENT_NOTIFY_LOOKUP:
+		case OES_EVENT_NOTIFY_LOOKUP:
 			*seen_mask |= EVT_LOOKUP;
 			break;
-		case ESC_EVENT_NOTIFY_SETMODE:
+		case OES_EVENT_NOTIFY_SETMODE:
 			*seen_mask |= EVT_SETMODE;
 			break;
-		case ESC_EVENT_NOTIFY_SETOWNER:
+		case OES_EVENT_NOTIFY_SETOWNER:
 			*seen_mask |= EVT_SETOWNER;
 			break;
-		case ESC_EVENT_NOTIFY_SETFLAGS:
+		case OES_EVENT_NOTIFY_SETFLAGS:
 			*seen_mask |= EVT_SETFLAGS;
 			break;
-		case ESC_EVENT_NOTIFY_SETUTIMES:
+		case OES_EVENT_NOTIFY_SETUTIMES:
 			*seen_mask |= EVT_SETUTIMES;
 			break;
-		case ESC_EVENT_NOTIFY_SETEXTATTR:
+		case OES_EVENT_NOTIFY_SETEXTATTR:
 			*seen_mask |= EVT_SETEXTATTR;
 			break;
-		case ESC_EVENT_NOTIFY_STAT:
+		case OES_EVENT_NOTIFY_STAT:
 			*seen_mask |= EVT_STAT;
 			break;
-		case ESC_EVENT_NOTIFY_POLL:
+		case OES_EVENT_NOTIFY_POLL:
 			*seen_mask |= EVT_POLL;
 			break;
-		case ESC_EVENT_NOTIFY_REVOKE:
+		case OES_EVENT_NOTIFY_REVOKE:
 			*seen_mask |= EVT_REVOKE;
 			break;
-		case ESC_EVENT_NOTIFY_READDIR:
+		case OES_EVENT_NOTIFY_READDIR:
 			*seen_mask |= EVT_READDIR;
 			break;
-		case ESC_EVENT_NOTIFY_READLINK:
+		case OES_EVENT_NOTIFY_READLINK:
 			*seen_mask |= EVT_READLINK;
 			break;
-		case ESC_EVENT_NOTIFY_GETEXTATTR:
+		case OES_EVENT_NOTIFY_GETEXTATTR:
 			*seen_mask |= EVT_GETEXTATTR;
 			break;
-		case ESC_EVENT_NOTIFY_DELETEEXTATTR:
+		case OES_EVENT_NOTIFY_DELETEEXTATTR:
 			*seen_mask |= EVT_DELETEEXTATTR;
 			break;
-		case ESC_EVENT_NOTIFY_LISTEXTATTR:
+		case OES_EVENT_NOTIFY_LISTEXTATTR:
 			*seen_mask |= EVT_LISTEXTATTR;
 			break;
-		case ESC_EVENT_NOTIFY_GETACL:
+		case OES_EVENT_NOTIFY_GETACL:
 			*seen_mask |= EVT_GETACL;
 			break;
-		case ESC_EVENT_NOTIFY_SETACL:
+		case OES_EVENT_NOTIFY_SETACL:
 			*seen_mask |= EVT_SETACL;
 			break;
-		case ESC_EVENT_NOTIFY_DELETEACL:
+		case OES_EVENT_NOTIFY_DELETEACL:
 			*seen_mask |= EVT_DELETEACL;
 			break;
-		case ESC_EVENT_NOTIFY_RELABEL:
+		case OES_EVENT_NOTIFY_RELABEL:
 			*seen_mask |= EVT_RELABEL;
 			break;
 		default:
@@ -155,7 +155,7 @@ static int
 child_ops(int write_fd)
 {
 	uint64_t ok = 0;
-	char path[] = "/tmp/esc-vnode.XXXXXX";
+	char path[] = "/tmp/oes-vnode.XXXXXX";
 	char newpath[PATH_MAX];
 	char linkpath[PATH_MAX];
 	char linktarget[PATH_MAX];
@@ -183,7 +183,7 @@ child_ops(int write_fd)
 	if (poll(&pfd, 1, 0) >= 0)
 		ok |= EVT_POLL;
 
-	if (write(fd, "esc", 3) == 3)
+	if (write(fd, "oes", 3) == 3)
 		ok |= EVT_WRITE;
 
 	if (lseek(fd, 0, SEEK_SET) >= 0) {
@@ -242,11 +242,11 @@ child_ops(int write_fd)
 	}
 
 	extlen = extattr_set_file(path, EXTATTR_NAMESPACE_USER,
-	    "esc.test", "x", 1);
+	    "oes.test", "x", 1);
 	if (extlen >= 0)
 		ok |= EVT_SETEXTATTR;
 	extlen = extattr_get_file(path, EXTATTR_NAMESPACE_USER,
-	    "esc.test", extbuf, sizeof(extbuf));
+	    "oes.test", extbuf, sizeof(extbuf));
 	if (extlen >= 0)
 		ok |= EVT_GETEXTATTR;
 	extlen = extattr_list_file(path, EXTATTR_NAMESPACE_USER,
@@ -254,7 +254,7 @@ child_ops(int write_fd)
 	if (extlen >= 0)
 		ok |= EVT_LISTEXTATTR;
 	if (extattr_delete_file(path, EXTATTR_NAMESPACE_USER,
-	    "esc.test") == 0)
+	    "oes.test") == 0)
 		ok |= EVT_DELETEEXTATTR;
 
 	acl = acl_get_file(path, ACL_TYPE_ACCESS);
@@ -291,34 +291,34 @@ main(void)
 {
 	int fd;
 	int pipefd[2];
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = {
-		ESC_EVENT_NOTIFY_OPEN,
-		ESC_EVENT_NOTIFY_CREATE,
-		ESC_EVENT_NOTIFY_UNLINK,
-		ESC_EVENT_NOTIFY_RENAME,
-		ESC_EVENT_NOTIFY_ACCESS,
-		ESC_EVENT_NOTIFY_READ,
-		ESC_EVENT_NOTIFY_WRITE,
-		ESC_EVENT_NOTIFY_LOOKUP,
-		ESC_EVENT_NOTIFY_SETMODE,
-		ESC_EVENT_NOTIFY_SETOWNER,
-		ESC_EVENT_NOTIFY_SETFLAGS,
-		ESC_EVENT_NOTIFY_SETUTIMES,
-		ESC_EVENT_NOTIFY_SETEXTATTR,
-		ESC_EVENT_NOTIFY_STAT,
-		ESC_EVENT_NOTIFY_POLL,
-		ESC_EVENT_NOTIFY_REVOKE,
-		ESC_EVENT_NOTIFY_READDIR,
-		ESC_EVENT_NOTIFY_READLINK,
-		ESC_EVENT_NOTIFY_GETEXTATTR,
-		ESC_EVENT_NOTIFY_DELETEEXTATTR,
-		ESC_EVENT_NOTIFY_LISTEXTATTR,
-		ESC_EVENT_NOTIFY_GETACL,
-		ESC_EVENT_NOTIFY_SETACL,
-		ESC_EVENT_NOTIFY_DELETEACL,
-		ESC_EVENT_NOTIFY_RELABEL,
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = {
+		OES_EVENT_NOTIFY_OPEN,
+		OES_EVENT_NOTIFY_CREATE,
+		OES_EVENT_NOTIFY_UNLINK,
+		OES_EVENT_NOTIFY_RENAME,
+		OES_EVENT_NOTIFY_ACCESS,
+		OES_EVENT_NOTIFY_READ,
+		OES_EVENT_NOTIFY_WRITE,
+		OES_EVENT_NOTIFY_LOOKUP,
+		OES_EVENT_NOTIFY_SETMODE,
+		OES_EVENT_NOTIFY_SETOWNER,
+		OES_EVENT_NOTIFY_SETFLAGS,
+		OES_EVENT_NOTIFY_SETUTIMES,
+		OES_EVENT_NOTIFY_SETEXTATTR,
+		OES_EVENT_NOTIFY_STAT,
+		OES_EVENT_NOTIFY_POLL,
+		OES_EVENT_NOTIFY_REVOKE,
+		OES_EVENT_NOTIFY_READDIR,
+		OES_EVENT_NOTIFY_READLINK,
+		OES_EVENT_NOTIFY_GETEXTATTR,
+		OES_EVENT_NOTIFY_DELETEEXTATTR,
+		OES_EVENT_NOTIFY_LISTEXTATTR,
+		OES_EVENT_NOTIFY_GETACL,
+		OES_EVENT_NOTIFY_SETACL,
+		OES_EVENT_NOTIFY_DELETEACL,
+		OES_EVENT_NOTIFY_RELABEL,
 	};
 	pid_t pid;
 	int status;
@@ -330,16 +330,16 @@ main(void)
 	int ok_received = 0;
 	int child_done = 0;
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -347,9 +347,9 @@ main(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = sizeof(events) / sizeof(events[0]);
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}

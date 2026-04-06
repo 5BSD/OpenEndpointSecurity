@@ -6,27 +6,27 @@
 #endif
 
 BEGIN {
-	printf("esc load/unload workflow\n");
+	printf("oes load/unload workflow\n");
 }
 
-fbt::esc_dev_init:entry
+fbt::oes_dev_init:entry
 {
 	dev_init++;
 }
 
-fbt::esc_mac_init:entry
+fbt::oes_mac_init:entry
 {
 	mac_init++;
 	if (dev_init == 0)
 		failed = 1;
 }
 
-fbt::esc_mac_uninit:entry
+fbt::oes_mac_uninit:entry
 {
 	mac_uninit++;
 }
 
-fbt::esc_dev_uninit:entry
+fbt::oes_dev_uninit:entry
 {
 	dev_uninit++;
 	if (mac_uninit == 0)

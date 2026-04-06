@@ -1,15 +1,15 @@
 # $FreeBSD$
 
-LIB=		esc
+LIB=		oes
 SHLIB_MAJOR=	1
-SRCS=		libesc.c
+SRCS=		liboes.c
 
-INCS=		libesc.h
+INCS=		liboes.h
 INCSDIR=	${INCLUDEDIR}
 
 CFLAGS+=	-I${.CURDIR}/../../sys
 
-MAN=		libesc.3
+MAN=		liboes.3
 
 WARNS?=		6
 

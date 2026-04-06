@@ -1,12 +1,12 @@
 #!/bin/sh
-# run_tests.sh - Compile and run ESC tests on the VM
+# run_tests.sh - Compile and run OES tests on the VM
 
 set -e
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 SYS_DIR=${SYSDIR:-/usr/src/sys}
 ACL_LIB=
-MODULE="$ROOT_DIR/sys/security/esc/esc.ko"
+MODULE="$ROOT_DIR/sys/security/oes/oes.ko"
 
 # ANSI color codes
 RED='\033[0;31m'
@@ -32,20 +32,20 @@ if [ "${FORCE_BUILD:-0}" -ne 0 ] || [ ! -f "$MODULE" ]; then
     if [ ! -d "$SYS_DIR" ]; then
         echo "SYSDIR not found: $SYS_DIR"
         echo "Set SYSDIR=/path/to/FreeBSD/src/sys and rerun."
-        echo "Or deploy a prebuilt esc.ko to $MODULE and rerun."
+        echo "Or deploy a prebuilt oes.ko to $MODULE and rerun."
         exit 1
     fi
 
-    echo "=== Building ESC module ==="
-    make -C "$ROOT_DIR/sys/security/esc" SYSDIR="$SYS_DIR"
+    echo "=== Building OES module ==="
+    make -C "$ROOT_DIR/sys/security/oes" SYSDIR="$SYS_DIR"
 fi
 
 cd "$ROOT_DIR"
 
 echo "=== Unloading old module (if loaded) ==="
-kldunload esc 2>/dev/null || true
+kldunload oes 2>/dev/null || true
 
-echo "=== Loading ESC module ==="
+echo "=== Loading OES module ==="
 kldload "$MODULE"
 if [ $? -ne 0 ]; then
     printf "${RED}FAILED to load module${NC}\n"
@@ -53,16 +53,16 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "=== Module loaded ==="
-kldstat | grep esc
-sysctl security.esc
+kldstat | grep oes
+sysctl security.oes
 
-echo "=== Checking /dev/esc ==="
-ls -la /dev/esc
+echo "=== Checking /dev/oes ==="
+ls -la /dev/oes
 
-echo "=== Compiling test_esc ==="
-cc -o test_esc test_esc.c -I"$ROOT_DIR" -I"$ROOT_DIR/sys"
+echo "=== Compiling test_oes ==="
+cc -o test_oes test_oes.c -I"$ROOT_DIR" -I"$ROOT_DIR/sys"
 if [ $? -ne 0 ]; then
-    printf "${RED}FAILED to compile test_esc${NC}\n"
+    printf "${RED}FAILED to compile test_oes${NC}\n"
     exit 1
 fi
 
@@ -131,5 +131,5 @@ echo ""
 printf "${GREEN}${BOLD}=== All unit tests passed ===${NC}\n"
 echo ""
 echo "To run interactive event monitor:"
-echo "  ./test_esc       - NOTIFY mode (shows argc for exec events)"
-echo "  ./test_esc -a    - AUTH mode (retrieves full arguments)"
+echo "  ./test_oes       - NOTIFY mode (shows argc for exec events)"
+echo "  ./test_oes -a    - AUTH mode (retrieves full arguments)"

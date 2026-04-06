@@ -1,7 +1,7 @@
 /*
- * ESC flags-based AUTH response test.
+ * OES flags-based AUTH response test.
  *
- * Tests esc_response_flags_t for partial authorization scenarios,
+ * Tests oes_response_flags_t for partial authorization scenarios,
  * such as downgrading O_RDWR to O_RDONLY.
  */
 #include <sys/ioctl.h>
@@ -16,16 +16,16 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 /*
  * Respond with flags-based response.
  */
 static int
-respond_with_flags(int fd, uint64_t msg_id, esc_auth_result_t result,
+respond_with_flags(int fd, uint64_t msg_id, oes_auth_result_t result,
     uint32_t allowed_flags, uint32_t denied_flags)
 {
-	esc_response_flags_t resp;
+	oes_response_flags_t resp;
 
 	memset(&resp, 0, sizeof(resp));
 	resp.erf_id = msg_id;
@@ -40,9 +40,9 @@ respond_with_flags(int fd, uint64_t msg_id, esc_auth_result_t result,
  * Respond with simple response.
  */
 static int
-respond_simple(int fd, uint64_t msg_id, esc_auth_result_t result)
+respond_simple(int fd, uint64_t msg_id, oes_auth_result_t result)
 {
-	esc_response_t resp;
+	oes_response_t resp;
 
 	memset(&resp, 0, sizeof(resp));
 	resp.er_id = msg_id;
@@ -55,8 +55,8 @@ respond_simple(int fd, uint64_t msg_id, esc_auth_result_t result)
  * Wait for AUTH event and optionally respond.
  */
 static int
-wait_for_auth(int fd, pid_t pid, esc_event_type_t event, int timeout_ms,
-    esc_message_t *out)
+wait_for_auth(int fd, pid_t pid, oes_event_type_t event, int timeout_ms,
+    oes_message_t *out)
 {
 	struct pollfd pfd;
 	struct timespec start;
@@ -76,7 +76,7 @@ wait_for_auth(int fd, pid_t pid, esc_event_type_t event, int timeout_ms,
 			break;
 
 		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			esc_message_t msg;
+			oes_message_t msg;
 			ssize_t n = read(fd, &msg, sizeof(msg));
 			if (n < 0) {
 				if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -88,10 +88,10 @@ wait_for_auth(int fd, pid_t pid, esc_event_type_t event, int timeout_ms,
 				continue;
 
 			/* Respond to unrelated AUTH events */
-			if (msg.em_action == ESC_ACTION_AUTH &&
+			if (msg.em_action == OES_ACTION_AUTH &&
 			    (msg.em_process.ep_pid != pid ||
 			     msg.em_event != event)) {
-				(void)respond_simple(fd, msg.em_id, ESC_AUTH_ALLOW);
+				(void)respond_simple(fd, msg.em_id, OES_AUTH_ALLOW);
 				continue;
 			}
 
@@ -112,32 +112,32 @@ int
 main(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	struct esc_mute_args mute_proc;
-	esc_event_type_t events[] = {
-		ESC_EVENT_AUTH_OPEN,
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	struct oes_mute_args mute_proc;
+	oes_event_type_t events[] = {
+		OES_EVENT_AUTH_OPEN,
 	};
 	int pipefd[2];
 	pid_t child;
-	esc_message_t msg;
+	oes_message_t msg;
 	int status;
 	char cmd;
 	int ret;
 
 	printf("Testing flags-based AUTH response...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_AUTH;
+	mode.ema_mode = OES_MODE_AUTH;
 	mode.ema_timeout_ms = 5000;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -145,18 +145,18 @@ main(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = sizeof(events) / sizeof(events[0]);
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
 
 	/* Self-mute to avoid blocking own operations */
 	memset(&mute_proc, 0, sizeof(mute_proc));
-	mute_proc.emu_flags = ESC_MUTE_SELF;
-	if (ioctl(fd, ESC_IOC_MUTE_PROCESS, &mute_proc) < 0) {
-		perror("ESC_IOC_MUTE_PROCESS (self)");
+	mute_proc.emu_flags = OES_MUTE_SELF;
+	if (ioctl(fd, OES_IOC_MUTE_PROCESS, &mute_proc) < 0) {
+		perror("OES_IOC_MUTE_PROCESS (self)");
 		close(fd);
 		return (1);
 	}
@@ -201,7 +201,7 @@ main(void)
 
 			if (cmd == 'w') {
 				/* Try read-write open (will fail due to perms anyway) */
-				testfd = open("/tmp/esc-flags-test", O_RDWR | O_CREAT, 0644);
+				testfd = open("/tmp/oes-flags-test", O_RDWR | O_CREAT, 0644);
 				if (testfd >= 0) {
 					/* Check if we can actually write */
 					if (write(testfd, "test", 4) > 0)
@@ -226,14 +226,14 @@ main(void)
 	cmd = 'r';
 	(void)write(pipefd[1], &cmd, 1);
 
-	ret = wait_for_auth(fd, child, ESC_EVENT_AUTH_OPEN, 2000, &msg);
+	ret = wait_for_auth(fd, child, OES_EVENT_AUTH_OPEN, 2000, &msg);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: no AUTH_OPEN event received\n");
 		goto fail;
 	}
 
 	/* Respond with flags-based ALLOW (no flag restrictions) */
-	ret = respond_with_flags(fd, msg.em_id, ESC_AUTH_ALLOW, 0, 0);
+	ret = respond_with_flags(fd, msg.em_id, OES_AUTH_ALLOW, 0, 0);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: flags response write failed\n");
 		goto fail;
@@ -263,14 +263,14 @@ main(void)
 	cmd = 'r';
 	(void)write(pipefd[1], &cmd, 1);
 
-	ret = wait_for_auth(fd, child, ESC_EVENT_AUTH_OPEN, 2000, &msg);
+	ret = wait_for_auth(fd, child, OES_EVENT_AUTH_OPEN, 2000, &msg);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: no AUTH_OPEN event received\n");
 		goto fail;
 	}
 
 	/* Respond with flags-based DENY */
-	ret = respond_with_flags(fd, msg.em_id, ESC_AUTH_DENY, 0, O_RDONLY);
+	ret = respond_with_flags(fd, msg.em_id, OES_AUTH_DENY, 0, O_RDONLY);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: flags response write failed\n");
 		goto fail;
@@ -300,14 +300,14 @@ main(void)
 	cmd = 'r';
 	(void)write(pipefd[1], &cmd, 1);
 
-	ret = wait_for_auth(fd, child, ESC_EVENT_AUTH_OPEN, 2000, &msg);
+	ret = wait_for_auth(fd, child, OES_EVENT_AUTH_OPEN, 2000, &msg);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: no AUTH_OPEN event received\n");
 		goto fail;
 	}
 
 	/* Respond with simple response (shorter write) */
-	ret = respond_simple(fd, msg.em_id, ESC_AUTH_ALLOW);
+	ret = respond_simple(fd, msg.em_id, OES_AUTH_ALLOW);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: simple response write failed\n");
 		goto fail;
@@ -337,7 +337,7 @@ main(void)
 	cmd = 'w';
 	(void)write(pipefd[1], &cmd, 1);
 
-	ret = wait_for_auth(fd, child, ESC_EVENT_AUTH_OPEN, 2000, &msg);
+	ret = wait_for_auth(fd, child, OES_EVENT_AUTH_OPEN, 2000, &msg);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: no AUTH_OPEN event received\n");
 		goto fail;
@@ -346,7 +346,7 @@ main(void)
 	printf("    Received OPEN for flags=0x%x\n", msg.em_event_data.open.flags);
 
 	/* Allow but specify only read flag is permitted */
-	ret = respond_with_flags(fd, msg.em_id, ESC_AUTH_ALLOW, O_RDONLY, O_WRONLY);
+	ret = respond_with_flags(fd, msg.em_id, OES_AUTH_ALLOW, O_RDONLY, O_WRONLY);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: flags response write failed\n");
 		goto fail;
@@ -381,7 +381,7 @@ main(void)
 	close(pipefd[1]);
 
 	/* Cleanup test file */
-	(void)unlink("/tmp/esc-flags-test");
+	(void)unlink("/tmp/oes-flags-test");
 
 	close(fd);
 
@@ -393,7 +393,7 @@ fail:
 	(void)write(pipefd[1], &cmd, 1);
 	(void)waitpid(child, &status, 0);
 	close(pipefd[1]);
-	(void)unlink("/tmp/esc-flags-test");
+	(void)unlink("/tmp/oes-flags-test");
 	close(fd);
 	return (1);
 }

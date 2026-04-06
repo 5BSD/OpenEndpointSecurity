@@ -1,5 +1,5 @@
 /*
- * ESC mute/self-mute/inversion smoke test.
+ * OES mute/self-mute/inversion smoke test.
  */
 #include <sys/ioctl.h>
 #include <sys/poll.h>
@@ -13,11 +13,11 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 static int
-wait_for_event(int fd, pid_t pid, esc_event_type_t event, int timeout_ms,
-    esc_message_t *out)
+wait_for_event(int fd, pid_t pid, oes_event_type_t event, int timeout_ms,
+    oes_message_t *out)
 {
 	struct pollfd pfd;
 	struct timespec start;
@@ -37,7 +37,7 @@ wait_for_event(int fd, pid_t pid, esc_event_type_t event, int timeout_ms,
 			break;
 
 		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			esc_message_t msg;
+			oes_message_t msg;
 			ssize_t n = read(fd, &msg, sizeof(msg));
 			if (n < 0) {
 				if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -81,7 +81,7 @@ wait_for_any_event(int fd, pid_t pid, int timeout_ms)
 			break;
 
 		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			esc_message_t msg;
+			oes_message_t msg;
 			ssize_t n = read(fd, &msg, sizeof(msg));
 			if (n < 0) {
 				if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -104,30 +104,30 @@ int
 main(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	struct esc_mute_args mute;
-	struct esc_mute_invert_args invert;
-	esc_event_type_t events[] = {
-		ESC_EVENT_NOTIFY_OPEN,
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	struct oes_mute_args mute;
+	struct oes_mute_invert_args invert;
+	oes_event_type_t events[] = {
+		OES_EVENT_NOTIFY_OPEN,
 	};
 	int pipefd[2];
 	pid_t child;
-	esc_message_t msg;
+	oes_message_t msg;
 	int status;
 	char cmd;
 	int ret;
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -135,18 +135,18 @@ main(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = sizeof(events) / sizeof(events[0]);
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
 
 	/* Self-mute should suppress events from this process. */
 	memset(&mute, 0, sizeof(mute));
-	mute.emu_flags = ESC_MUTE_SELF;
-	if (ioctl(fd, ESC_IOC_MUTE_PROCESS, &mute) < 0) {
-		perror("ESC_IOC_MUTE_PROCESS (self)");
+	mute.emu_flags = OES_MUTE_SELF;
+	if (ioctl(fd, OES_IOC_MUTE_PROCESS, &mute) < 0) {
+		perror("OES_IOC_MUTE_PROCESS (self)");
 		close(fd);
 		return (1);
 	}
@@ -192,7 +192,7 @@ main(void)
 	/* Child open -> capture token, then mute child. */
 	cmd = 'o';
 	(void)write(pipefd[1], &cmd, 1);
-	ret = wait_for_event(fd, child, ESC_EVENT_NOTIFY_OPEN, 2000, &msg);
+	ret = wait_for_event(fd, child, OES_EVENT_NOTIFY_OPEN, 2000, &msg);
 	if (ret != 0) {
 		fprintf(stderr, "expected child open event\n");
 		goto fail;
@@ -200,15 +200,15 @@ main(void)
 
 	memset(&mute, 0, sizeof(mute));
 	mute.emu_token = msg.em_process.ep_token;
-	if (ioctl(fd, ESC_IOC_MUTE_PROCESS, &mute) < 0) {
-		perror("ESC_IOC_MUTE_PROCESS");
+	if (ioctl(fd, OES_IOC_MUTE_PROCESS, &mute) < 0) {
+		perror("OES_IOC_MUTE_PROCESS");
 		goto fail;
 	}
 
 	/* Muted child should not generate events. */
 	cmd = 'o';
 	(void)write(pipefd[1], &cmd, 1);
-	ret = wait_for_event(fd, child, ESC_EVENT_NOTIFY_OPEN, 500, NULL);
+	ret = wait_for_event(fd, child, OES_EVENT_NOTIFY_OPEN, 500, NULL);
 	if (ret == 0) {
 		fprintf(stderr, "mute failed (event still delivered)\n");
 		goto fail;
@@ -216,16 +216,16 @@ main(void)
 
 	/* Invert muting: only muted processes should deliver events. */
 	memset(&invert, 0, sizeof(invert));
-	invert.emi_type = ESC_MUTE_INVERT_PROCESS;
+	invert.emi_type = OES_MUTE_INVERT_PROCESS;
 	invert.emi_invert = 1;
-	if (ioctl(fd, ESC_IOC_SET_MUTE_INVERT, &invert) < 0) {
-		perror("ESC_IOC_SET_MUTE_INVERT");
+	if (ioctl(fd, OES_IOC_SET_MUTE_INVERT, &invert) < 0) {
+		perror("OES_IOC_SET_MUTE_INVERT");
 		goto fail;
 	}
 
 	cmd = 'o';
 	(void)write(pipefd[1], &cmd, 1);
-	ret = wait_for_event(fd, child, ESC_EVENT_NOTIFY_OPEN, 2000, NULL);
+	ret = wait_for_event(fd, child, OES_EVENT_NOTIFY_OPEN, 2000, NULL);
 	if (ret != 0) {
 		fprintf(stderr, "mute inversion failed (missing event)\n");
 		goto fail;

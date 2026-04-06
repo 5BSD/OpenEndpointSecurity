@@ -1,5 +1,5 @@
 /*
- * ESC multi-client NOTIFY fan-out test.
+ * OES multi-client NOTIFY fan-out test.
  */
 #include <sys/ioctl.h>
 #include <sys/poll.h>
@@ -13,7 +13,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 static int
 wait_for_exec(int fd, pid_t pid, int timeout_ms)
@@ -36,7 +36,7 @@ wait_for_exec(int fd, pid_t pid, int timeout_ms)
 			break;
 
 		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			esc_message_t msg;
+			oes_message_t msg;
 			ssize_t n = read(fd, &msg, sizeof(msg));
 			if (n < 0) {
 				if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -49,9 +49,9 @@ wait_for_exec(int fd, pid_t pid, int timeout_ms)
 
 			if (msg.em_process.ep_pid != pid)
 				continue;
-			if (msg.em_event != ESC_EVENT_NOTIFY_EXEC)
+			if (msg.em_event != OES_EVENT_NOTIFY_EXEC)
 				continue;
-			if (msg.em_action != ESC_ACTION_NOTIFY)
+			if (msg.em_action != OES_ACTION_NOTIFY)
 				continue;
 			return (0);
 		}
@@ -64,22 +64,22 @@ static int
 setup_notify_client(int *out_fd)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = {
-		ESC_EVENT_NOTIFY_EXEC,
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = {
+		OES_EVENT_NOTIFY_EXEC,
 	};
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (-1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (-1);
 	}
@@ -87,9 +87,9 @@ setup_notify_client(int *out_fd)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = sizeof(events) / sizeof(events[0]);
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (-1);
 	}

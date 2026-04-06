@@ -1,5 +1,5 @@
 /*
- * ESC kldunload event test.
+ * OES kldunload event test.
  *
  * Tests NOTIFY_KLDUNLOAD event by loading and unloading a kernel module.
  * Requires root privileges.
@@ -18,7 +18,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 /* Modules to try - must be loadable and unloadable */
 static const char *test_modules[] = {
@@ -31,7 +31,7 @@ static const char *test_modules[] = {
 static int
 read_events(int fd, int *kldunload_seen, const char *expected_name)
 {
-	esc_message_t msg;
+	oes_message_t msg;
 	ssize_t n;
 
 	for (;;) {
@@ -47,7 +47,7 @@ read_events(int fd, int *kldunload_seen, const char *expected_name)
 		if ((size_t)n != sizeof(msg))
 			continue;
 
-		if (msg.em_event == ESC_EVENT_NOTIFY_KLDUNLOAD) {
+		if (msg.em_event == OES_EVENT_NOTIFY_KLDUNLOAD) {
 			fprintf(stderr, "  got NOTIFY_KLDUNLOAD: name=%s\n",
 			    msg.em_event_data.kldunload.name);
 			if (expected_name != NULL &&
@@ -65,10 +65,10 @@ int
 main(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = {
-		ESC_EVENT_NOTIFY_KLDUNLOAD,
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = {
+		OES_EVENT_NOTIFY_KLDUNLOAD,
 	};
 	int kldunload_seen = 0;
 	struct pollfd pfd;
@@ -95,16 +95,16 @@ main(void)
 		}
 	}
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -112,9 +112,9 @@ main(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = sizeof(events) / sizeof(events[0]);
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}

@@ -1,5 +1,5 @@
 /*
- * ESC mmap/mprotect event tests.
+ * OES mmap/mprotect event tests.
  *
  * Tests memory mapping operations and protection changes.
  */
@@ -13,8 +13,8 @@ test_mmap_file(void)
 {
 	int fd, testfd;
 	char temppath[64];
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_MMAP };
-	esc_message_t msg;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_MMAP };
+	oes_message_t msg;
 	void *addr;
 	char data[] = "test data for mmap";
 	int got_mmap = 0;
@@ -25,12 +25,12 @@ test_mmap_file(void)
 	if (fd < 0)
 		return (1);
 
-	if (test_set_mode(fd, ESC_MODE_NOTIFY) < 0) {
+	if (test_set_mode(fd, OES_MODE_NOTIFY) < 0) {
 		close(fd);
 		return (1);
 	}
 
-	if (test_subscribe(fd, events, 1, ESC_SUB_REPLACE) < 0) {
+	if (test_subscribe(fd, events, 1, OES_SUB_REPLACE) < 0) {
 		close(fd);
 		return (1);
 	}
@@ -56,7 +56,7 @@ test_mmap_file(void)
 	/* Check for mmap event */
 	for (int i = 0; i < 3; i++) {
 		if (test_wait_event(fd, &msg, 500) == 0) {
-			if (msg.em_event == ESC_EVENT_NOTIFY_MMAP) {
+			if (msg.em_event == OES_EVENT_NOTIFY_MMAP) {
 				got_mmap = 1;
 				printf("    INFO: mmap event: prot=0x%x flags=0x%x\n",
 				    msg.em_event_data.mmap.prot,
@@ -80,8 +80,8 @@ static int
 test_mmap_anon(void)
 {
 	int fd;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_MMAP };
-	esc_message_t msg;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_MMAP };
+	oes_message_t msg;
 	void *addr;
 	int got_mmap = 0;
 
@@ -91,12 +91,12 @@ test_mmap_anon(void)
 	if (fd < 0)
 		return (1);
 
-	if (test_set_mode(fd, ESC_MODE_NOTIFY) < 0) {
+	if (test_set_mode(fd, OES_MODE_NOTIFY) < 0) {
 		close(fd);
 		return (1);
 	}
 
-	if (test_subscribe(fd, events, 1, ESC_SUB_REPLACE) < 0) {
+	if (test_subscribe(fd, events, 1, OES_SUB_REPLACE) < 0) {
 		close(fd);
 		return (1);
 	}
@@ -113,7 +113,7 @@ test_mmap_anon(void)
 	/* Check for mmap event (anonymous mmap may or may not generate events) */
 	for (int i = 0; i < 3; i++) {
 		if (test_wait_event(fd, &msg, 500) == 0) {
-			if (msg.em_event == ESC_EVENT_NOTIFY_MMAP)
+			if (msg.em_event == OES_EVENT_NOTIFY_MMAP)
 				got_mmap = 1;
 		}
 	}
@@ -130,8 +130,8 @@ static int
 test_mprotect(void)
 {
 	int fd;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_MPROTECT };
-	esc_message_t msg;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_MPROTECT };
+	oes_message_t msg;
 	void *addr;
 	int got_mprotect = 0;
 
@@ -141,12 +141,12 @@ test_mprotect(void)
 	if (fd < 0)
 		return (1);
 
-	if (test_set_mode(fd, ESC_MODE_NOTIFY) < 0) {
+	if (test_set_mode(fd, OES_MODE_NOTIFY) < 0) {
 		close(fd);
 		return (1);
 	}
 
-	if (test_subscribe(fd, events, 1, ESC_SUB_REPLACE) < 0) {
+	if (test_subscribe(fd, events, 1, OES_SUB_REPLACE) < 0) {
 		close(fd);
 		return (1);
 	}
@@ -171,7 +171,7 @@ test_mprotect(void)
 	/* Check for mprotect event */
 	for (int i = 0; i < 3; i++) {
 		if (test_wait_event(fd, &msg, 500) == 0) {
-			if (msg.em_event == ESC_EVENT_NOTIFY_MPROTECT) {
+			if (msg.em_event == OES_EVENT_NOTIFY_MPROTECT) {
 				got_mprotect = 1;
 				printf("    INFO: mprotect event: new_prot=0x%x\n",
 				    msg.em_event_data.mprotect.prot);
@@ -193,8 +193,8 @@ test_mmap_exec(void)
 {
 	int fd, testfd;
 	char temppath[64];
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_MMAP };
-	esc_message_t msg;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_MMAP };
+	oes_message_t msg;
 	void *addr;
 	int got_mmap = 0;
 
@@ -204,12 +204,12 @@ test_mmap_exec(void)
 	if (fd < 0)
 		return (1);
 
-	if (test_set_mode(fd, ESC_MODE_NOTIFY) < 0) {
+	if (test_set_mode(fd, OES_MODE_NOTIFY) < 0) {
 		close(fd);
 		return (1);
 	}
 
-	if (test_subscribe(fd, events, 1, ESC_SUB_REPLACE) < 0) {
+	if (test_subscribe(fd, events, 1, OES_SUB_REPLACE) < 0) {
 		close(fd);
 		return (1);
 	}
@@ -246,7 +246,7 @@ test_mmap_exec(void)
 	/* Check for mmap event */
 	for (int i = 0; i < 3; i++) {
 		if (test_wait_event(fd, &msg, 500) == 0) {
-			if (msg.em_event == ESC_EVENT_NOTIFY_MMAP) {
+			if (msg.em_event == OES_EVENT_NOTIFY_MMAP) {
 				got_mmap = 1;
 				if (msg.em_event_data.mmap.prot & PROT_EXEC)
 					printf("    INFO: EXEC mmap detected\n");
@@ -269,13 +269,13 @@ test_auth_mmap(void)
 {
 	int fd, testfd;
 	char temppath[64];
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	struct esc_mute_args mute;
-	struct esc_mute_invert_args invert;
-	esc_event_type_t events[] = { ESC_EVENT_AUTH_MMAP };
-	esc_message_t msg;
-	esc_response_t resp;
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	struct oes_mute_args mute;
+	struct oes_mute_invert_args invert;
+	oes_event_type_t events[] = { OES_EVENT_AUTH_MMAP };
+	oes_message_t msg;
+	oes_response_t resp;
 	pid_t child;
 	int pipefd[2];
 	char buf;
@@ -289,9 +289,9 @@ test_auth_mmap(void)
 		return (1);
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_AUTH;
+	mode.ema_mode = OES_MODE_AUTH;
 	mode.ema_timeout_ms = 5000;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
 		TEST_FAIL("set mode: %s", strerror(errno));
 		close(fd);
 		return (1);
@@ -300,8 +300,8 @@ test_auth_mmap(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
 		TEST_FAIL("subscribe: %s", strerror(errno));
 		close(fd);
 		return (1);
@@ -309,9 +309,9 @@ test_auth_mmap(void)
 
 	/* Invert muting so only selected processes are monitored */
 	memset(&invert, 0, sizeof(invert));
-	invert.emi_type = ESC_MUTE_INVERT_PROCESS;
+	invert.emi_type = OES_MUTE_INVERT_PROCESS;
 	invert.emi_invert = 1;
-	(void)ioctl(fd, ESC_IOC_SET_MUTE_INVERT, &invert);
+	(void)ioctl(fd, OES_IOC_SET_MUTE_INVERT, &invert);
 
 	/* Create temp file */
 	testfd = test_create_temp_file(temppath, sizeof(temppath));
@@ -367,18 +367,18 @@ test_auth_mmap(void)
 	/* Mute child so it's monitored (inverted mode) */
 	memset(&mute, 0, sizeof(mute));
 	mute.emu_token.ept_id = child;
-	(void)ioctl(fd, ESC_IOC_MUTE_PROCESS, &mute);
+	(void)ioctl(fd, OES_IOC_MUTE_PROCESS, &mute);
 
 	/* Signal child to proceed */
 	(void)write(pipefd[1], "G", 1);
 	close(pipefd[1]);
 
 	/* Wait for AUTH_MMAP event */
-	if (test_wait_event_type(fd, &msg, ESC_EVENT_AUTH_MMAP, 3000) == 0) {
+	if (test_wait_event_type(fd, &msg, OES_EVENT_AUTH_MMAP, 3000) == 0) {
 		printf("    INFO: got AUTH_MMAP event, allowing\n");
 		memset(&resp, 0, sizeof(resp));
 		resp.er_id = msg.em_id;
-		resp.er_result = ESC_AUTH_ALLOW;
+		resp.er_result = OES_AUTH_ALLOW;
 		(void)write(fd, &resp, sizeof(resp));
 	} else {
 		printf("    INFO: no AUTH_MMAP event received\n");

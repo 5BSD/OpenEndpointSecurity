@@ -6,25 +6,25 @@
 #endif
 
 BEGIN {
-	printf("esc poll/kqueue workflow\n");
+	printf("oes poll/kqueue workflow\n");
 }
 
-fbt::esc_poll:entry
+fbt::oes_poll:entry
 {
 	poll++;
 }
 
-fbt::esc_kqfilter:entry
+fbt::oes_kqfilter:entry
 {
 	kqfilter++;
 }
 
-fbt::esc_kqdetach:entry
+fbt::oes_kqdetach:entry
 {
 	kqdetach++;
 }
 
-fbt::esc_kqread:entry
+fbt::oes_kqread:entry
 {
 	kqread++;
 }

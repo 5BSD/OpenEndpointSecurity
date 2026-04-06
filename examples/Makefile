@@ -1,14 +1,14 @@
 # $FreeBSD$
 
-PROGS=		escd vendor_client
-SRCS_escd=	escd.c
+PROGS=		oesd vendor_client
+SRCS_oesd=	oesd.c
 SRCS_vendor_client= vendor_client.c
 
-CFLAGS+=	-I${.CURDIR}/../lib/libesc
+CFLAGS+=	-I${.CURDIR}/../lib/liboes
 CFLAGS+=	-I${.CURDIR}/../sys
 
-LDADD+=		-L${.CURDIR}/../lib/libesc -lesc
-LDFLAGS+=	-Wl,-rpath,${.CURDIR}/../lib/libesc
+LDADD+=		-L${.CURDIR}/../lib/liboes -lesc
+LDFLAGS+=	-Wl,-rpath,${.CURDIR}/../lib/liboes
 
 WARNS?=		6
 

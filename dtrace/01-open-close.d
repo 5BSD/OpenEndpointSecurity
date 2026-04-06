@@ -6,29 +6,29 @@
 #endif
 
 BEGIN {
-	printf("esc open/close workflow\n");
+	printf("oes open/close workflow\n");
 }
 
-fbt::esc_open:entry
+fbt::oes_open:entry
 {
 	open++;
 	self->open = 1;
 }
 
-fbt::esc_client_alloc:return
+fbt::oes_client_alloc:return
 /self->open/
 {
 	alloc++;
 	self->open = 0;
 }
 
-fbt::esc_client_dtor:entry
+fbt::oes_client_dtor:entry
 {
 	dtor++;
 	self->dtor = 1;
 }
 
-fbt::esc_client_free:entry
+fbt::oes_client_free:entry
 /self->dtor/
 {
 	free++;

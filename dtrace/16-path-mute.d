@@ -6,15 +6,15 @@
 #endif
 
 BEGIN {
-	printf("esc path mute evaluation\n");
+	printf("oes path mute evaluation\n");
 }
 
-fbt::esc_event_is_path_muted:entry
+fbt::oes_event_is_path_muted:entry
 {
 	check++;
 }
 
-fbt::esc_event_path_muted_join:entry
+fbt::oes_event_path_muted_join:entry
 {
 	join++;
 }

@@ -1,17 +1,17 @@
-DTrace workflows for ESC
+DTrace workflows for OES
 
-Each script asserts a specific ESC kernel workflow using fbt probes.
+Each script asserts a specific OES kernel workflow using fbt probes.
 Run as root. Most scripts are driven by a subject command via -c and
 exit after TIMEOUT seconds (default 20).
 
 Usage examples:
 
 - Load/unload:
-  dtrace -s dtrace/00-load-unload.d -c 'kldload ./sys/security/esc/esc.ko; kldunload esc'
+  dtrace -s dtrace/00-load-unload.d -c 'kldload ./sys/security/oes/oes.ko; kldunload oes'
 
 - Open/close + subscribe:
-  dtrace -s dtrace/01-open-close.d -c './test_esc -h'
-  dtrace -s dtrace/02-ioctl-subscribe-mode.d -c './test_esc -n'
+  dtrace -s dtrace/01-open-close.d -c './test_oes -h'
+  dtrace -s dtrace/02-ioctl-subscribe-mode.d -c './test_oes -n'
 
 - Auth/notify dispatch (use a workload that triggers vnode events):
   dtrace -s dtrace/04-auth-dispatch.d -c './tests/test_vnode_events'
@@ -26,7 +26,7 @@ Usage examples:
   dtrace -s dtrace/11-fork-exit.d -c './tests/test_process_events'
 
 - Exec args:
-  dtrace -s dtrace/10-exec-args.d -c './test_esc -a'
+  dtrace -s dtrace/10-exec-args.d -c './test_oes -a'
 
 Override timeout:
   dtrace -D TIMEOUT=60 -s dtrace/04-auth-dispatch.d -c './tests/test_vnode_events'

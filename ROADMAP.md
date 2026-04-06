@@ -1,6 +1,6 @@
-# ESC Roadmap - Future Features
+# OES Roadmap - Future Features
 
-This document tracks potential features for ESC (Endpoint Security Capabilities).
+This document tracks potential features for OES (Endpoint Security Capabilities).
 
 ## Legend
 
@@ -62,7 +62,7 @@ System operations that CAN sleep:
 
 ---
 
-## 0.1 Current ESC Implementation Reference
+## 0.1 Current OES Implementation Reference
 
 ### Eventhandlers (NOTIFY only - inherently non-blocking):
 
@@ -167,7 +167,7 @@ These events cannot be implemented without adding new MAC hooks or eventhandlers
 
 ## 2. FreeBSD-Specific Opportunities
 
-These are unique to FreeBSD and would differentiate ESC from Apple ES.
+These are unique to FreeBSD and would differentiate OES from Apple ES.
 
 ### 2.1 Jail Events
 
@@ -185,7 +185,7 @@ typedef struct {
     char        path[MAXPATHLEN]; /* Jail root path */
     char        hostname[MAXHOSTNAMELEN];
     uint32_t    flags;            /* Jail flags */
-} esc_event_jail_t;
+} oes_event_jail_t;
 ```
 
 ### 2.2 Capsicum Events
@@ -204,7 +204,7 @@ typedef struct {
     uint64_t    rights[2];        /* CAP_RIGHTS_VERSION_00 */
     uint32_t    fcntls;           /* Allowed fcntl commands */
     uint32_t    nioctls;          /* Number of allowed ioctls */
-} esc_event_capsicum_t;
+} oes_event_capsicum_t;
 ```
 
 ### 2.3 Process Control Events
@@ -254,7 +254,7 @@ typedef struct {
     char        snapshot[256];    /* Snapshot name (if applicable) */
     uint64_t    guid;             /* Dataset GUID */
     uint32_t    op;               /* Operation type */
-} esc_event_zfs_t;
+} oes_event_zfs_t;
 ```
 
 ### 3.2 GEOM Integration
@@ -299,11 +299,11 @@ typedef struct {
 
 **Proposed IOCTLs:**
 ```c
-struct esc_batch_response {
+struct oes_batch_response {
     uint32_t        ebr_count;
-    esc_response_t  *ebr_responses;
+    oes_response_t  *ebr_responses;
 };
-#define ESC_IOC_BATCH_RESPOND  _IOW('E', 40, struct esc_batch_response)
+#define OES_IOC_BATCH_RESPOND  _IOW('E', 40, struct oes_batch_response)
 ```
 
 ### 4.2 Event Notification Improvements
@@ -316,7 +316,7 @@ struct esc_batch_response {
 
 **Proposed:**
 ```c
-/* Add to esc_message_t */
+/* Add to oes_message_t */
 uint64_t    em_seq;        /* Sequence number */
 uint64_t    em_txn_id;     /* Transaction ID (optional) */
 ```
@@ -330,12 +330,12 @@ uint64_t    em_txn_id;     /* Transaction ID (optional) */
 
 **Proposed:**
 ```c
-struct esc_getfd_args {
+struct oes_getfd_args {
     uint64_t    egf_msg_id;    /* Message ID */
     int         egf_which;     /* 0=file, 1=target, 2=dir */
     int         egf_fd;        /* OUT: file descriptor */
 };
-#define ESC_IOC_GET_FD  _IOWR('E', 41, struct esc_getfd_args)
+#define OES_IOC_GET_FD  _IOWR('E', 41, struct oes_getfd_args)
 ```
 
 ### 4.4 Enhanced Caching
@@ -356,12 +356,12 @@ struct esc_getfd_args {
 
 **Proposed:**
 ```c
-struct esc_client_info {
+struct oes_client_info {
     char        eci_name[64];      /* Client name */
     uint32_t    eci_priority;      /* 0=normal, 1=high */
     uint32_t    eci_flags;         /* ECI_FLAG_* */
 };
-#define ESC_IOC_SET_CLIENT_INFO  _IOW('E', 42, struct esc_client_info)
+#define OES_IOC_SET_CLIENT_INFO  _IOW('E', 42, struct oes_client_info)
 ```
 
 ---
@@ -458,4 +458,4 @@ Each new feature needs:
 - New events should be additive (don't break existing subscriptions)
 - New struct fields should be appended (ABI stability)
 - Use reserved space in existing structures when possible
-- Version bump `ESC_API_VERSION` for breaking changes only
+- Version bump `OES_API_VERSION` for breaking changes only

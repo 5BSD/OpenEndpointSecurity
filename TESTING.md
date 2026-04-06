@@ -1,8 +1,8 @@
-# ESC (Endpoint Security Capabilities) Test Plan
+# OES (Endpoint Security Capabilities) Test Plan
 
 ## Overview
 
-ESC is a capability-based security event monitoring framework for FreeBSD,
+OES is a capability-based security event monitoring framework for FreeBSD,
 inspired by Apple's Endpoint Security. It provides a safe API for third-party
 security vendors to build EDR/AV software.
 
@@ -12,8 +12,8 @@ security vendors to build EDR/AV software.
 ┌─────────────────────────────────────────────────────────────┐
 │                      Kernel Space                           │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐     │
-│  │  MAC hooks  │───▶│  esc_event  │───▶│  /dev/esc   │     │
-│  │ (esc_mac.c) │    │             │    │ (esc_dev.c) │     │
+│  │  MAC hooks  │───▶│  oes_event  │───▶│  /dev/oes   │     │
+│  │ (oes_mac.c) │    │             │    │ (oes_dev.c) │     │
 │  └─────────────┘    └─────────────┘    └─────────────┘     │
 │                                              │              │
 └──────────────────────────────────────────────│──────────────┘
@@ -22,8 +22,8 @@ security vendors to build EDR/AV software.
                     │          Userspace       │              │
                     │                          ▼              │
                     │  ┌─────────────────────────────────┐   │
-                    │  │           escd                   │   │
-                    │  │   (owns /dev/esc, AUTH mode)     │   │
+                    │  │           oesd                   │   │
+                    │  │   (owns /dev/oes, AUTH mode)     │   │
                     │  └───────────────┬─────────────────┘   │
                     │                  │ Unix socket         │
                     │                  │ (SCM_RIGHTS)        │
@@ -39,24 +39,24 @@ security vendors to build EDR/AV software.
 
 1. **Loadable kernel module** - No kernel source changes required
 2. **Capsicum ioctl limiting** - Uses `cap_ioctls_limit()` not new CAP_* rights
-3. **Third-party restriction** - Cannot enter AUTH mode (no ESC_IOC_SET_MODE)
+3. **Third-party restriction** - Cannot enter AUTH mode (no OES_IOC_SET_MODE)
 4. **exec_id tracking** - 64-bit random ID, same on fork, new on exec
 
 ## File Locations
 
 ```
-/home/koryheard/Projects/esc/
-├── sys/security/esc/          # Kernel module
-│   ├── esc.h                  # Public API header
-│   ├── esc_internal.h         # Kernel internal header
-│   ├── esc_dev.c              # Character device
-│   ├── esc_client.c           # Client management
-│   ├── esc_event.c            # Event handling
-│   ├── esc_mac.c              # MAC policy hooks
+/home/koryheard/Projects/OpenEndpointSecurity/
+├── sys/security/oes/          # Kernel module
+│   ├── oes.h                  # Public API header
+│   ├── oes_internal.h         # Kernel internal header
+│   ├── oes_dev.c              # Character device
+│   ├── oes_client.c           # Client management
+│   ├── oes_event.c            # Event handling
+│   ├── oes_mac.c              # MAC policy hooks
 │   └── Makefile
-├── lib/libesc/                # Userspace library
-│   ├── libesc.h
-│   ├── libesc.c
+├── lib/liboes/                # Userspace library
+│   ├── liboes.h
+│   ├── liboes.c
 │   └── Makefile
 ├── tests/                     # Unit tests
 │   ├── test_mute.c
@@ -66,7 +66,7 @@ security vendors to build EDR/AV software.
 │   ├── test_vnode_events.c
 │   └── test_decision_cache.c
 └── examples/                  # Example programs
-    ├── escd.c                 # System daemon
+    ├── oesd.c                 # System daemon
     ├── vendor_client.c        # Third-party example
     └── Makefile
 ```
@@ -78,39 +78,39 @@ security vendors to build EDR/AV software.
 ### 1.1 Build Kernel Module
 
 ```sh
-cd /home/koryheard/Projects/esc/sys/security/esc
+cd /home/koryheard/Projects/OpenEndpointSecurity/sys/security/oes
 make clean && make
 ```
 
-**Expected**: Compiles without errors, produces `esc.ko`
+**Expected**: Compiles without errors, produces `oes.ko`
 
 **Common issues**:
 - Missing includes
-- Undefined symbols (check esc_internal.h prototypes)
+- Undefined symbols (check oes_internal.h prototypes)
 - MAC framework API changes
 
 ### 1.2 Build Userspace Library
 
 ```sh
-cd /home/koryheard/Projects/esc/lib/libesc
+cd /home/koryheard/Projects/OpenEndpointSecurity/lib/liboes
 make clean && make
 ```
 
-**Expected**: Produces `libesc.so.1` and `libesc.a`
+**Expected**: Produces `liboes.so.1` and `liboes.a`
 
 ### 1.3 Build Example Programs
 
 ```sh
-cd /home/koryheard/Projects/esc/examples
+cd /home/koryheard/Projects/OpenEndpointSecurity/examples
 make clean && make
 ```
 
-**Expected**: Produces `escd` and `vendor_client` binaries
+**Expected**: Produces `oesd` and `vendor_client` binaries
 
 ### 1.4 Build and Run Unit Tests
 
 ```sh
-cd /home/koryheard/Projects/esc
+cd /home/koryheard/Projects/OpenEndpointSecurity
 ./run_tests.sh
 ```
 
@@ -128,28 +128,28 @@ without failures
 ### 2.1 Load Module
 
 ```sh
-kldload ./esc.ko
+kldload ./oes.ko
 ```
 
 **Expected**:
 - Module loads successfully
-- `kldstat | grep esc` shows module loaded
-- `/dev/esc` appears
-- `dmesg` shows: "esc: Endpoint Security Capabilities device created"
+- `kldstat | grep oes` shows module loaded
+- `/dev/oes` appears
+- `dmesg` shows: "oes: Endpoint Security Capabilities device created"
 
 ### 2.2 Device Permissions
 
 ```sh
-ls -la /dev/esc
+ls -la /dev/oes
 ```
 
-**Expected**: `crw------- 1 root wheel ... /dev/esc`
+**Expected**: `crw------- 1 root wheel ... /dev/oes`
 
 ### 2.3 Privileged Access
 
 ```sh
 # As root
-cat /dev/esc  # Should block waiting for events (Ctrl+C to exit)
+cat /dev/oes  # Should block waiting for events (Ctrl+C to exit)
 ```
 
 **Expected**: Blocks (no error)
@@ -158,7 +158,7 @@ cat /dev/esc  # Should block waiting for events (Ctrl+C to exit)
 
 ```sh
 # As regular user
-cat /dev/esc
+cat /dev/oes
 ```
 
 **Expected**: "Permission denied" (EACCES or EPERM)
@@ -166,15 +166,15 @@ cat /dev/esc
 ### 2.5 Sysctl Interface
 
 ```sh
-sysctl security.esc
+sysctl security.oes
 ```
 
 **Expected**:
 ```
-security.esc.debug: 0
-security.esc.default_timeout: 30000
-security.esc.default_queue_size: 1024
-security.esc.max_clients: 64
+security.oes.debug: 0
+security.oes.default_timeout: 30000
+security.oes.default_queue_size: 1024
+security.oes.max_clients: 64
 ```
 
 ---
@@ -185,7 +185,7 @@ security.esc.max_clients: 64
 
 Create test program `test_notify.c`:
 ```c
-#include <libesc.h>
+#include <liboes.h>
 #include <stdio.h>
 #include <signal.h>
 
@@ -193,9 +193,9 @@ static volatile int running = 1;
 
 static void sighandler(int sig) { running = 0; }
 
-static bool handler(esc_client_t *c, const esc_message_t *m, void *ctx) {
+static bool handler(oes_client_t *c, const oes_message_t *m, void *ctx) {
     printf("[%s] pid=%d comm=%s\n",
-        esc_event_name(m->em_event),
+        oes_event_name(m->em_event),
         m->em_process.ep_pid,
         m->em_process.ep_comm);
     return running;
@@ -204,19 +204,19 @@ static bool handler(esc_client_t *c, const esc_message_t *m, void *ctx) {
 int main() {
     signal(SIGINT, sighandler);
 
-    esc_client_t *client = esc_client_create();
+    oes_client_t *client = oes_client_create();
     if (!client) { perror("create"); return 1; }
 
-    if (esc_subscribe_all(client, false, true) < 0)
+    if (oes_subscribe_all(client, false, true) < 0)
         { perror("subscribe"); return 1; }
 
-    if (esc_mute_self(client) < 0)
+    if (oes_mute_self(client) < 0)
         { perror("mute"); return 1; }
 
     printf("Listening for NOTIFY events...\n");
-    esc_dispatch(client, handler, NULL);
+    oes_dispatch(client, handler, NULL);
 
-    esc_client_destroy(client);
+    oes_client_destroy(client);
     return 0;
 }
 ```
@@ -267,8 +267,8 @@ kill %1
 ### 4.1 Set AUTH Mode
 
 ```c
-esc_client_t *client = esc_client_create();
-int rc = esc_set_mode(client, ESC_MODE_AUTH, 5000, 0);  // 5s timeout
+oes_client_t *client = oes_client_create();
+int rc = oes_set_mode(client, OES_MODE_AUTH, 5000, 0);  // 5s timeout
 printf("set_mode returned: %d\n", rc);
 ```
 
@@ -286,8 +286,8 @@ printf("set_mode returned: %d\n", rc);
 ### 4.3 AUTH Allow
 
 ```c
-if (esc_is_auth_event(msg)) {
-    esc_respond_allow(client, msg);
+if (oes_is_auth_event(msg)) {
+    oes_respond_allow(client, msg);
 }
 ```
 
@@ -296,8 +296,8 @@ if (esc_is_auth_event(msg)) {
 ### 4.4 AUTH Deny
 
 ```c
-if (esc_is_auth_event(msg)) {
-    esc_respond_deny(client, msg);
+if (oes_is_auth_event(msg)) {
+    oes_respond_deny(client, msg);
 }
 ```
 
@@ -317,14 +317,14 @@ if (esc_is_auth_event(msg)) {
 
 ## Phase 5: Third-Party Restriction
 
-### 5.1 Start escd
+### 5.1 Start oesd
 
 ```sh
-./escd -d  # Debug mode
+./oesd -d  # Debug mode
 ```
 
 **Expected**:
-- "started, listening on /var/run/escd.sock"
+- "started, listening on /var/run/oesd.sock"
 - Socket file created
 
 ### 5.2 Connect vendor_client
@@ -335,7 +335,7 @@ if (esc_is_auth_event(msg)) {
 
 **Expected**:
 ```
-Connecting to escd at /var/run/escd.sock...
+Connecting to oesd at /var/run/oesd.sock...
 Received restricted fd N
 Attempting to set AUTH mode (should fail)...
   Failed as expected: Not capable
@@ -347,7 +347,7 @@ Listening for events...
 
 In vendor_client, attempt:
 ```c
-int rc = esc_set_mode(client, ESC_MODE_AUTH, 0, 0);
+int rc = oes_set_mode(client, OES_MODE_AUTH, 0, 0);
 ```
 
 **Expected**: Returns -1, errno == ENOTCAPABLE
@@ -363,7 +363,7 @@ int rc = esc_set_mode(client, ESC_MODE_AUTH, 0, 0);
 If vendor_client somehow receives AUTH events (via PASSIVE mode),
 attempting to respond should fail.
 
-**Expected**: `esc_respond()` returns ENOTCAPABLE
+**Expected**: `oes_respond()` returns ENOTCAPABLE
 
 ---
 
@@ -396,7 +396,7 @@ for i in $(seq 1 1000); do /bin/true; done
 
 ```sh
 # With clients connected
-kldunload esc
+kldunload oes
 ```
 
 **Expected**:
@@ -446,7 +446,7 @@ kldunload esc
 ### 7.1 Privilege Escalation
 
 **Test**: Unprivileged process tries to:
-- Open /dev/esc directly
+- Open /dev/oes directly
 - Use received fd to set AUTH mode
 - Manipulate events
 
@@ -479,13 +479,13 @@ kldunload esc
 ### Enable Debug Output
 
 ```sh
-sysctl security.esc.debug=1
+sysctl security.oes.debug=1
 ```
 
 ### Check Module Messages
 
 ```sh
-dmesg | grep esc
+dmesg | grep oes
 ```
 
 ### Trace ioctls
@@ -498,8 +498,8 @@ kdump | grep ioctl
 ### Check Client Stats
 
 ```c
-struct esc_stats stats;
-esc_get_stats(client, &stats);
+struct oes_stats stats;
+oes_get_stats(client, &stats);
 printf("received=%lu dropped=%lu timeouts=%lu\n",
     stats.es_events_received,
     stats.es_events_dropped,

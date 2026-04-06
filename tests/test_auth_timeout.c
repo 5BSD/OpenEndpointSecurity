@@ -1,5 +1,5 @@
 /*
- * ESC AUTH timeout test (default action applied on timeout).
+ * OES AUTH timeout test (default action applied on timeout).
  */
 #include <sys/ioctl.h>
 #include <sys/poll.h>
@@ -13,10 +13,10 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 static int
-wait_for_open_event(int fd, pid_t pid, int timeout_ms, esc_message_t *out)
+wait_for_open_event(int fd, pid_t pid, int timeout_ms, oes_message_t *out)
 {
 	struct pollfd pfd;
 	struct timespec start;
@@ -36,7 +36,7 @@ wait_for_open_event(int fd, pid_t pid, int timeout_ms, esc_message_t *out)
 			break;
 
 		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			esc_message_t msg;
+			oes_message_t msg;
 			ssize_t n = read(fd, &msg, sizeof(msg));
 			if (n < 0) {
 				if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -46,9 +46,9 @@ wait_for_open_event(int fd, pid_t pid, int timeout_ms, esc_message_t *out)
 			}
 			if ((size_t)n != sizeof(msg))
 				continue;
-			if (msg.em_event != ESC_EVENT_AUTH_OPEN)
+			if (msg.em_event != OES_EVENT_AUTH_OPEN)
 				continue;
-			if (msg.em_action != ESC_ACTION_AUTH)
+			if (msg.em_action != OES_ACTION_AUTH)
 				continue;
 			if (msg.em_process.ep_pid != pid)
 				continue;
@@ -102,39 +102,39 @@ main(void)
 	int fd;
 	int ctl_pipe[2];
 	int res_pipe[2];
-	struct esc_mode_args mode;
-	struct esc_timeout_action_args timeout_action;
-	struct esc_subscribe_args sub;
-	struct esc_mute_args mute;
-	struct esc_mute_invert_args invert;
-	esc_event_type_t events[] = {
-		ESC_EVENT_AUTH_OPEN,
+	struct oes_mode_args mode;
+	struct oes_timeout_action_args timeout_action;
+	struct oes_subscribe_args sub;
+	struct oes_mute_args mute;
+	struct oes_mute_invert_args invert;
+	oes_event_type_t events[] = {
+		OES_EVENT_AUTH_OPEN,
 	};
 	pid_t child;
 	int status;
 	int err;
 	char cmd = 'g';
-	esc_message_t msg;
+	oes_message_t msg;
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_AUTH;
+	mode.ema_mode = OES_MODE_AUTH;
 	mode.ema_timeout_ms = 200;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
 
 	memset(&timeout_action, 0, sizeof(timeout_action));
-	timeout_action.eta_action = ESC_AUTH_DENY;
-	if (ioctl(fd, ESC_IOC_SET_TIMEOUT_ACTION, &timeout_action) < 0) {
-		perror("ESC_IOC_SET_TIMEOUT_ACTION");
+	timeout_action.eta_action = OES_AUTH_DENY;
+	if (ioctl(fd, OES_IOC_SET_TIMEOUT_ACTION, &timeout_action) < 0) {
+		perror("OES_IOC_SET_TIMEOUT_ACTION");
 		close(fd);
 		return (1);
 	}
@@ -142,18 +142,18 @@ main(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = sizeof(events) / sizeof(events[0]);
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
 
 	memset(&invert, 0, sizeof(invert));
-	invert.emi_type = ESC_MUTE_INVERT_PROCESS;
+	invert.emi_type = OES_MUTE_INVERT_PROCESS;
 	invert.emi_invert = 1;
-	if (ioctl(fd, ESC_IOC_SET_MUTE_INVERT, &invert) < 0) {
-		perror("ESC_IOC_SET_MUTE_INVERT");
+	if (ioctl(fd, OES_IOC_SET_MUTE_INVERT, &invert) < 0) {
+		perror("OES_IOC_SET_MUTE_INVERT");
 		close(fd);
 		return (1);
 	}
@@ -195,8 +195,8 @@ main(void)
 	memset(&mute, 0, sizeof(mute));
 	mute.emu_token.ept_id = (uint64_t)child;
 	mute.emu_token.ept_genid = 0;
-	if (ioctl(fd, ESC_IOC_MUTE_PROCESS, &mute) < 0) {
-		perror("ESC_IOC_MUTE_PROCESS");
+	if (ioctl(fd, OES_IOC_MUTE_PROCESS, &mute) < 0) {
+		perror("OES_IOC_MUTE_PROCESS");
 		goto fail;
 	}
 

@@ -1,5 +1,5 @@
 /*
- * ESC signal event tests.
+ * OES signal event tests.
  *
  * Tests NOTIFY_SIGNAL events and related process operations.
  */
@@ -14,8 +14,8 @@ test_signal_to_child(void)
 {
 	int fd;
 	pid_t child;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_SIGNAL };
-	esc_message_t msg;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_SIGNAL };
+	oes_message_t msg;
 	int pipefd[2];
 	char buf;
 
@@ -25,12 +25,12 @@ test_signal_to_child(void)
 	if (fd < 0)
 		return (1);
 
-	if (test_set_mode(fd, ESC_MODE_NOTIFY) < 0) {
+	if (test_set_mode(fd, OES_MODE_NOTIFY) < 0) {
 		close(fd);
 		return (1);
 	}
 
-	if (test_subscribe(fd, events, 1, ESC_SUB_REPLACE) < 0) {
+	if (test_subscribe(fd, events, 1, OES_SUB_REPLACE) < 0) {
 		close(fd);
 		return (1);
 	}
@@ -90,11 +90,11 @@ test_signal_to_child(void)
 	}
 
 	/* Wait for NOTIFY_SIGNAL event */
-	if (test_wait_event_type(fd, &msg, ESC_EVENT_NOTIFY_SIGNAL, 2000) < 0) {
+	if (test_wait_event_type(fd, &msg, OES_EVENT_NOTIFY_SIGNAL, 2000) < 0) {
 		/* Signal events may not be delivered for all signals */
 		printf("    INFO: no signal event received (may be expected)\n");
 	} else {
-		ASSERT_MSG(msg.em_event == ESC_EVENT_NOTIFY_SIGNAL,
+		ASSERT_MSG(msg.em_event == OES_EVENT_NOTIFY_SIGNAL,
 		    "wrong event type: 0x%x", msg.em_event);
 		printf("    INFO: signal event received: sig=%d target_pid=%d\n",
 		    msg.em_event_data.signal.signum,
@@ -119,7 +119,7 @@ static int
 test_signal_self(void)
 {
 	int fd;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_SIGNAL };
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_SIGNAL };
 	struct sigaction sa, old_sa;
 
 	TEST_BEGIN("signal to self (SIGUSR1)");
@@ -128,12 +128,12 @@ test_signal_self(void)
 	if (fd < 0)
 		return (1);
 
-	if (test_set_mode(fd, ESC_MODE_NOTIFY) < 0) {
+	if (test_set_mode(fd, OES_MODE_NOTIFY) < 0) {
 		close(fd);
 		return (1);
 	}
 
-	if (test_subscribe(fd, events, 1, ESC_SUB_REPLACE) < 0) {
+	if (test_subscribe(fd, events, 1, OES_SUB_REPLACE) < 0) {
 		close(fd);
 		return (1);
 	}
@@ -162,8 +162,8 @@ test_ptrace_event(void)
 {
 	int fd;
 	pid_t child;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_PTRACE };
-	esc_message_t msg;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_PTRACE };
+	oes_message_t msg;
 	int status;
 
 	TEST_BEGIN("ptrace attach event");
@@ -172,12 +172,12 @@ test_ptrace_event(void)
 	if (fd < 0)
 		return (1);
 
-	if (test_set_mode(fd, ESC_MODE_NOTIFY) < 0) {
+	if (test_set_mode(fd, OES_MODE_NOTIFY) < 0) {
 		close(fd);
 		return (1);
 	}
 
-	if (test_subscribe(fd, events, 1, ESC_SUB_REPLACE) < 0) {
+	if (test_subscribe(fd, events, 1, OES_SUB_REPLACE) < 0) {
 		close(fd);
 		return (1);
 	}
@@ -220,7 +220,7 @@ test_ptrace_event(void)
 	waitpid(child, &status, 0);
 
 	/* Check for ptrace event */
-	if (test_wait_event_type(fd, &msg, ESC_EVENT_NOTIFY_PTRACE, 1000) == 0) {
+	if (test_wait_event_type(fd, &msg, OES_EVENT_NOTIFY_PTRACE, 1000) == 0) {
 		printf("    INFO: ptrace event received\n");
 	} else {
 		printf("    INFO: no ptrace event (may be expected)\n");
@@ -240,11 +240,11 @@ test_setuid_setgid_events(void)
 {
 	int fd;
 	pid_t child;
-	esc_event_type_t events[] = {
-		ESC_EVENT_NOTIFY_SETUID,
-		ESC_EVENT_NOTIFY_SETGID
+	oes_event_type_t events[] = {
+		OES_EVENT_NOTIFY_SETUID,
+		OES_EVENT_NOTIFY_SETGID
 	};
-	esc_message_t msg;
+	oes_message_t msg;
 	int pipefd[2];
 	char buf;
 	uid_t myuid = getuid();
@@ -256,12 +256,12 @@ test_setuid_setgid_events(void)
 	if (fd < 0)
 		return (1);
 
-	if (test_set_mode(fd, ESC_MODE_NOTIFY) < 0) {
+	if (test_set_mode(fd, OES_MODE_NOTIFY) < 0) {
 		close(fd);
 		return (1);
 	}
 
-	if (test_subscribe(fd, events, 2, ESC_SUB_REPLACE) < 0) {
+	if (test_subscribe(fd, events, 2, OES_SUB_REPLACE) < 0) {
 		close(fd);
 		return (1);
 	}
@@ -311,9 +311,9 @@ test_setuid_setgid_events(void)
 	int got_setuid = 0, got_setgid = 0;
 	for (int i = 0; i < 4; i++) {
 		if (test_wait_event(fd, &msg, 500) == 0) {
-			if (msg.em_event == ESC_EVENT_NOTIFY_SETUID)
+			if (msg.em_event == OES_EVENT_NOTIFY_SETUID)
 				got_setuid = 1;
-			else if (msg.em_event == ESC_EVENT_NOTIFY_SETGID)
+			else if (msg.em_event == OES_EVENT_NOTIFY_SETGID)
 				got_setgid = 1;
 		}
 	}

@@ -1,5 +1,5 @@
 /*
- * ESC process event smoke test (fork/exec/exit).
+ * OES process event smoke test (fork/exec/exit).
  */
 #include <sys/ioctl.h>
 #include <sys/poll.h>
@@ -13,17 +13,17 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 static const char *
 event_name(uint32_t ev)
 {
 	switch (ev) {
-	case ESC_EVENT_NOTIFY_FORK:
+	case OES_EVENT_NOTIFY_FORK:
 		return "NOTIFY_FORK";
-	case ESC_EVENT_NOTIFY_EXEC:
+	case OES_EVENT_NOTIFY_EXEC:
 		return "NOTIFY_EXEC";
-	case ESC_EVENT_NOTIFY_EXIT:
+	case OES_EVENT_NOTIFY_EXIT:
 		return "NOTIFY_EXIT";
 	default:
 		return "UNKNOWN";
@@ -34,7 +34,7 @@ static int
 read_events(int fd, pid_t child_pid, int *fork_seen, int *exec_seen,
     int *exit_seen)
 {
-	esc_message_t msg;
+	oes_message_t msg;
 	ssize_t n;
 
 	for (;;) {
@@ -54,15 +54,15 @@ read_events(int fd, pid_t child_pid, int *fork_seen, int *exec_seen,
 		    msg.em_event, msg.em_process.ep_pid, child_pid);
 
 		switch (msg.em_event) {
-		case ESC_EVENT_NOTIFY_FORK:
+		case OES_EVENT_NOTIFY_FORK:
 			if (msg.em_event_data.fork.child.ep_pid == child_pid)
 				*fork_seen = 1;
 			break;
-		case ESC_EVENT_NOTIFY_EXEC:
+		case OES_EVENT_NOTIFY_EXEC:
 			if (msg.em_process.ep_pid == child_pid)
 				*exec_seen = 1;
 			break;
-		case ESC_EVENT_NOTIFY_EXIT:
+		case OES_EVENT_NOTIFY_EXIT:
 			if (msg.em_process.ep_pid == child_pid)
 				*exit_seen = 1;
 			break;
@@ -76,12 +76,12 @@ int
 main(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = {
-		ESC_EVENT_NOTIFY_FORK,
-		ESC_EVENT_NOTIFY_EXEC,
-		ESC_EVENT_NOTIFY_EXIT,
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = {
+		OES_EVENT_NOTIFY_FORK,
+		OES_EVENT_NOTIFY_EXEC,
+		OES_EVENT_NOTIFY_EXIT,
 	};
 	pid_t pid;
 	int fork_seen = 0;
@@ -91,16 +91,16 @@ main(void)
 	struct pollfd pfd;
 	struct timespec start;
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -108,23 +108,23 @@ main(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = sizeof(events) / sizeof(events[0]);
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
 
 	/*
 	 * Unmute ourselves so we receive NOTIFY_FORK events.
-	 * By default (security.esc.default_self_mute=1), the client process
+	 * By default (security.oes.default_self_mute=1), the client process
 	 * is self-muted. FORK events have em_process set to the parent (us),
 	 * so they would be filtered out unless we unmute.
 	 *
 	 * Use UNMUTE_ALL_PROCESSES which clears the self-mute flag.
 	 */
-	if (ioctl(fd, ESC_IOC_UNMUTE_ALL_PROCESSES, NULL) < 0) {
-		perror("ESC_IOC_UNMUTE_ALL_PROCESSES");
+	if (ioctl(fd, OES_IOC_UNMUTE_ALL_PROCESSES, NULL) < 0) {
+		perror("OES_IOC_UNMUTE_ALL_PROCESSES");
 		close(fd);
 		return (1);
 	}
@@ -183,11 +183,11 @@ main(void)
 	if (!fork_seen || !exec_seen || !exit_seen) {
 		fprintf(stderr, "missing:");
 		if (!fork_seen)
-			fprintf(stderr, " %s", event_name(ESC_EVENT_NOTIFY_FORK));
+			fprintf(stderr, " %s", event_name(OES_EVENT_NOTIFY_FORK));
 		if (!exec_seen)
-			fprintf(stderr, " %s", event_name(ESC_EVENT_NOTIFY_EXEC));
+			fprintf(stderr, " %s", event_name(OES_EVENT_NOTIFY_EXEC));
 		if (!exit_seen)
-			fprintf(stderr, " %s", event_name(ESC_EVENT_NOTIFY_EXIT));
+			fprintf(stderr, " %s", event_name(OES_EVENT_NOTIFY_EXIT));
 		fprintf(stderr, "\n");
 		return (1);
 	}

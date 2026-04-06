@@ -1,5 +1,5 @@
 /*
- * ESC comprehensive hook coverage tests.
+ * OES comprehensive hook coverage tests.
  *
  * Tests every MAC hook/event type. Some require root privileges.
  */
@@ -28,15 +28,15 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
-#define TEST_DIR	"/tmp/esc_hook_test"
+#define TEST_DIR	"/tmp/oes_hook_test"
 #define TEST_FILE	TEST_DIR "/testfile"
 #define TEST_FILE2	TEST_DIR "/testfile2"
 #define TEST_LINK	TEST_DIR "/testlink"
 #define TEST_SYMLINK	TEST_DIR "/testsymlink"
 #define TEST_SUBDIR	TEST_DIR "/subdir"
-#define TEST_SOCKET	"/tmp/esc_hook_test.sock"
+#define TEST_SOCKET	"/tmp/oes_hook_test.sock"
 
 static int passed = 0;
 static int failed = 0;
@@ -47,16 +47,16 @@ static int is_root = 0;
 #define FAIL(name, reason) do { printf("  FAIL: %s - %s\n", name, reason); failed++; } while (0)
 #define SKIP(name, reason) do { printf("  SKIP: %s - %s\n", name, reason); skipped++; } while (0)
 
-static int esc_fd = -1;
+static int oes_fd = -1;
 
 static int
 open_esc(void)
 {
-	if (esc_fd >= 0)
+	if (oes_fd >= 0)
 		return (0);
-	esc_fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
-	if (esc_fd < 0) {
-		perror("open /dev/esc");
+	oes_fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	if (oes_fd < 0) {
+		perror("open /dev/oes");
 		return (-1);
 	}
 	return (0);
@@ -65,46 +65,46 @@ open_esc(void)
 static void
 close_esc(void)
 {
-	if (esc_fd >= 0) {
-		close(esc_fd);
-		esc_fd = -1;
+	if (oes_fd >= 0) {
+		close(oes_fd);
+		oes_fd = -1;
 	}
 }
 
 static int
-setup_notify(esc_event_type_t *events, size_t nevents)
+setup_notify(oes_event_type_t *events, size_t nevents)
 {
-	struct esc_mode_args margs;
-	struct esc_subscribe_args sargs;
-	struct esc_mute_args mute;
+	struct oes_mode_args margs;
+	struct oes_subscribe_args sargs;
+	struct oes_mute_args mute;
 
 	if (open_esc() < 0)
 		return (-1);
 
 	memset(&margs, 0, sizeof(margs));
-	margs.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(esc_fd, ESC_IOC_SET_MODE, &margs) < 0)
+	margs.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(oes_fd, OES_IOC_SET_MODE, &margs) < 0)
 		return (-1);
 
 	memset(&sargs, 0, sizeof(sargs));
 	sargs.esa_events = events;
 	sargs.esa_count = nevents;
-	sargs.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(esc_fd, ESC_IOC_SUBSCRIBE, &sargs) < 0)
+	sargs.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(oes_fd, OES_IOC_SUBSCRIBE, &sargs) < 0)
 		return (-1);
 
 	memset(&mute, 0, sizeof(mute));
-	mute.emu_flags = ESC_MUTE_SELF;
-	(void)ioctl(esc_fd, ESC_IOC_MUTE_PROCESS, &mute);
+	mute.emu_flags = OES_MUTE_SELF;
+	(void)ioctl(oes_fd, OES_IOC_MUTE_PROCESS, &mute);
 
 	return (0);
 }
 
 static int
-wait_for_event(esc_event_type_t expected, pid_t from_pid, int timeout_ms)
+wait_for_event(oes_event_type_t expected, pid_t from_pid, int timeout_ms)
 {
 	struct pollfd pfd;
-	esc_message_t msg;
+	oes_message_t msg;
 	struct timespec start, now;
 	ssize_t n;
 
@@ -117,12 +117,12 @@ wait_for_event(esc_event_type_t expected, pid_t from_pid, int timeout_ms)
 		if (elapsed >= timeout_ms)
 			return (0);
 
-		pfd.fd = esc_fd;
+		pfd.fd = oes_fd;
 		pfd.events = POLLIN;
 		if (poll(&pfd, 1, timeout_ms - elapsed) <= 0)
 			return (0);
 
-		n = read(esc_fd, &msg, sizeof(msg));
+		n = read(oes_fd, &msg, sizeof(msg));
 		if (n != sizeof(msg))
 			continue;
 
@@ -138,19 +138,19 @@ static void
 drain_events(void)
 {
 	struct pollfd pfd;
-	esc_message_t msg;
+	oes_message_t msg;
 
-	pfd.fd = esc_fd;
+	pfd.fd = oes_fd;
 	pfd.events = POLLIN;
 	while (poll(&pfd, 1, 10) > 0)
-		(void)read(esc_fd, &msg, sizeof(msg));
+		(void)read(oes_fd, &msg, sizeof(msg));
 }
 
 /*
  * Helper: run action in child, wait for event
  */
 static int
-test_event(const char *name, esc_event_type_t event, void (*action)(void))
+test_event(const char *name, oes_event_type_t event, void (*action)(void))
 {
 	pid_t pid;
 	int status;
@@ -511,23 +511,23 @@ test_vnode_events(void)
 {
 	printf("\n=== VNODE EVENTS ===\n");
 
-	test_event("NOTIFY_OPEN", ESC_EVENT_NOTIFY_OPEN, action_open);
-	test_event("NOTIFY_CREATE", ESC_EVENT_NOTIFY_CREATE, action_create);
-	test_event("NOTIFY_UNLINK", ESC_EVENT_NOTIFY_UNLINK, action_unlink);
-	test_event("NOTIFY_READ", ESC_EVENT_NOTIFY_READ, action_read);
-	test_event("NOTIFY_WRITE", ESC_EVENT_NOTIFY_WRITE, action_write);
-	test_event("NOTIFY_STAT", ESC_EVENT_NOTIFY_STAT, action_stat);
-	test_event("NOTIFY_ACCESS", ESC_EVENT_NOTIFY_ACCESS, action_access);
-	test_event("NOTIFY_READDIR", ESC_EVENT_NOTIFY_READDIR, action_readdir);
-	test_event("NOTIFY_READLINK", ESC_EVENT_NOTIFY_READLINK, action_readlink);
-	test_event("NOTIFY_LINK", ESC_EVENT_NOTIFY_LINK, action_link);
-	test_event("NOTIFY_RENAME", ESC_EVENT_NOTIFY_RENAME, action_rename);
-	test_event("NOTIFY_CHDIR", ESC_EVENT_NOTIFY_CHDIR, action_chdir);
-	test_event("NOTIFY_MMAP", ESC_EVENT_NOTIFY_MMAP, action_mmap);
-	test_event("NOTIFY_SETMODE", ESC_EVENT_NOTIFY_SETMODE, action_setmode);
-	test_event("NOTIFY_SETOWNER", ESC_EVENT_NOTIFY_SETOWNER, action_setowner);
-	test_event("NOTIFY_SETUTIMES", ESC_EVENT_NOTIFY_SETUTIMES, action_setutimes);
-	test_event("NOTIFY_SETFLAGS", ESC_EVENT_NOTIFY_SETFLAGS, action_setflags);
+	test_event("NOTIFY_OPEN", OES_EVENT_NOTIFY_OPEN, action_open);
+	test_event("NOTIFY_CREATE", OES_EVENT_NOTIFY_CREATE, action_create);
+	test_event("NOTIFY_UNLINK", OES_EVENT_NOTIFY_UNLINK, action_unlink);
+	test_event("NOTIFY_READ", OES_EVENT_NOTIFY_READ, action_read);
+	test_event("NOTIFY_WRITE", OES_EVENT_NOTIFY_WRITE, action_write);
+	test_event("NOTIFY_STAT", OES_EVENT_NOTIFY_STAT, action_stat);
+	test_event("NOTIFY_ACCESS", OES_EVENT_NOTIFY_ACCESS, action_access);
+	test_event("NOTIFY_READDIR", OES_EVENT_NOTIFY_READDIR, action_readdir);
+	test_event("NOTIFY_READLINK", OES_EVENT_NOTIFY_READLINK, action_readlink);
+	test_event("NOTIFY_LINK", OES_EVENT_NOTIFY_LINK, action_link);
+	test_event("NOTIFY_RENAME", OES_EVENT_NOTIFY_RENAME, action_rename);
+	test_event("NOTIFY_CHDIR", OES_EVENT_NOTIFY_CHDIR, action_chdir);
+	test_event("NOTIFY_MMAP", OES_EVENT_NOTIFY_MMAP, action_mmap);
+	test_event("NOTIFY_SETMODE", OES_EVENT_NOTIFY_SETMODE, action_setmode);
+	test_event("NOTIFY_SETOWNER", OES_EVENT_NOTIFY_SETOWNER, action_setowner);
+	test_event("NOTIFY_SETUTIMES", OES_EVENT_NOTIFY_SETUTIMES, action_setutimes);
+	test_event("NOTIFY_SETFLAGS", OES_EVENT_NOTIFY_SETFLAGS, action_setflags);
 }
 
 static void
@@ -537,11 +537,11 @@ test_extattr_events(void)
 
 	/* UFS required for extattr */
 	close_esc();
-	esc_event_type_t events[] = {
-		ESC_EVENT_NOTIFY_SETEXTATTR,
-		ESC_EVENT_NOTIFY_GETEXTATTR,
-		ESC_EVENT_NOTIFY_LISTEXTATTR,
-		ESC_EVENT_NOTIFY_DELETEEXTATTR,
+	oes_event_type_t events[] = {
+		OES_EVENT_NOTIFY_SETEXTATTR,
+		OES_EVENT_NOTIFY_GETEXTATTR,
+		OES_EVENT_NOTIFY_LISTEXTATTR,
+		OES_EVENT_NOTIFY_DELETEEXTATTR,
 	};
 	if (setup_notify(events, 4) < 0) {
 		SKIP("EXTATTR events", "setup failed");
@@ -556,10 +556,10 @@ test_extattr_events(void)
 	}
 	usleep(100000);
 
-	int set_seen = wait_for_event(ESC_EVENT_NOTIFY_SETEXTATTR, pid, 500);
-	int get_seen = wait_for_event(ESC_EVENT_NOTIFY_GETEXTATTR, pid, 500);
-	int list_seen = wait_for_event(ESC_EVENT_NOTIFY_LISTEXTATTR, pid, 500);
-	int del_seen = wait_for_event(ESC_EVENT_NOTIFY_DELETEEXTATTR, pid, 500);
+	int set_seen = wait_for_event(OES_EVENT_NOTIFY_SETEXTATTR, pid, 500);
+	int get_seen = wait_for_event(OES_EVENT_NOTIFY_GETEXTATTR, pid, 500);
+	int list_seen = wait_for_event(OES_EVENT_NOTIFY_LISTEXTATTR, pid, 500);
+	int del_seen = wait_for_event(OES_EVENT_NOTIFY_DELETEEXTATTR, pid, 500);
 
 	int status;
 	waitpid(pid, &status, 0);
@@ -576,15 +576,15 @@ test_socket_events(void)
 {
 	printf("\n=== SOCKET EVENTS ===\n");
 
-	test_event("NOTIFY_SOCKET_CREATE", ESC_EVENT_NOTIFY_SOCKET_CREATE, action_socket_create);
-	test_event("NOTIFY_SOCKET_BIND", ESC_EVENT_NOTIFY_SOCKET_BIND, action_socket_bind);
-	test_event("NOTIFY_SOCKET_LISTEN", ESC_EVENT_NOTIFY_SOCKET_LISTEN, action_socket_listen);
-	test_event("NOTIFY_SOCKET_CONNECT", ESC_EVENT_NOTIFY_SOCKET_CONNECT, action_socket_connect);
-	test_event("NOTIFY_SOCKET_ACCEPT", ESC_EVENT_NOTIFY_SOCKET_ACCEPT, action_socket_accept);
-	test_event("NOTIFY_SOCKET_SEND", ESC_EVENT_NOTIFY_SOCKET_SEND, action_socket_send);
-	test_event("NOTIFY_SOCKET_RECEIVE", ESC_EVENT_NOTIFY_SOCKET_RECEIVE, action_socket_receive);
-	test_event("NOTIFY_SOCKET_STAT", ESC_EVENT_NOTIFY_SOCKET_STAT, action_socket_stat);
-	test_event("NOTIFY_SOCKET_POLL", ESC_EVENT_NOTIFY_SOCKET_POLL, action_socket_poll);
+	test_event("NOTIFY_SOCKET_CREATE", OES_EVENT_NOTIFY_SOCKET_CREATE, action_socket_create);
+	test_event("NOTIFY_SOCKET_BIND", OES_EVENT_NOTIFY_SOCKET_BIND, action_socket_bind);
+	test_event("NOTIFY_SOCKET_LISTEN", OES_EVENT_NOTIFY_SOCKET_LISTEN, action_socket_listen);
+	test_event("NOTIFY_SOCKET_CONNECT", OES_EVENT_NOTIFY_SOCKET_CONNECT, action_socket_connect);
+	test_event("NOTIFY_SOCKET_ACCEPT", OES_EVENT_NOTIFY_SOCKET_ACCEPT, action_socket_accept);
+	test_event("NOTIFY_SOCKET_SEND", OES_EVENT_NOTIFY_SOCKET_SEND, action_socket_send);
+	test_event("NOTIFY_SOCKET_RECEIVE", OES_EVENT_NOTIFY_SOCKET_RECEIVE, action_socket_receive);
+	test_event("NOTIFY_SOCKET_STAT", OES_EVENT_NOTIFY_SOCKET_STAT, action_socket_stat);
+	test_event("NOTIFY_SOCKET_POLL", OES_EVENT_NOTIFY_SOCKET_POLL, action_socket_poll);
 }
 
 static void
@@ -592,13 +592,13 @@ test_process_events(void)
 {
 	printf("\n=== PROCESS EVENTS ===\n");
 
-	test_event("NOTIFY_SIGNAL", ESC_EVENT_NOTIFY_SIGNAL, action_signal);
-	test_event("NOTIFY_EXEC", ESC_EVENT_NOTIFY_EXEC, action_exec);
-	test_event("NOTIFY_PROC_SCHED", ESC_EVENT_NOTIFY_PROC_SCHED, action_proc_sched);
+	test_event("NOTIFY_SIGNAL", OES_EVENT_NOTIFY_SIGNAL, action_signal);
+	test_event("NOTIFY_EXEC", OES_EVENT_NOTIFY_EXEC, action_exec);
+	test_event("NOTIFY_PROC_SCHED", OES_EVENT_NOTIFY_PROC_SCHED, action_proc_sched);
 
 	/* PTRACE may require privileges */
 	close_esc();
-	esc_event_type_t event = ESC_EVENT_NOTIFY_PTRACE;
+	oes_event_type_t event = OES_EVENT_NOTIFY_PTRACE;
 	if (setup_notify(&event, 1) < 0) {
 		SKIP("NOTIFY_PTRACE", "setup failed");
 		return;
@@ -610,7 +610,7 @@ test_process_events(void)
 		_exit(0);
 	}
 	usleep(100000);
-	int seen = wait_for_event(ESC_EVENT_NOTIFY_PTRACE, pid, 1000);
+	int seen = wait_for_event(OES_EVENT_NOTIFY_PTRACE, pid, 1000);
 	int status;
 	waitpid(pid, &status, 0);
 	close_esc();
@@ -622,11 +622,11 @@ test_pipe_events(void)
 {
 	printf("\n=== PIPE EVENTS ===\n");
 
-	test_event("NOTIFY_PIPE_READ", ESC_EVENT_NOTIFY_PIPE_READ, action_pipe_read);
-	test_event("NOTIFY_PIPE_WRITE", ESC_EVENT_NOTIFY_PIPE_WRITE, action_pipe_write);
-	test_event("NOTIFY_PIPE_STAT", ESC_EVENT_NOTIFY_PIPE_STAT, action_pipe_stat);
-	test_event("NOTIFY_PIPE_POLL", ESC_EVENT_NOTIFY_PIPE_POLL, action_pipe_poll);
-	test_event("NOTIFY_PIPE_IOCTL", ESC_EVENT_NOTIFY_PIPE_IOCTL, action_pipe_ioctl);
+	test_event("NOTIFY_PIPE_READ", OES_EVENT_NOTIFY_PIPE_READ, action_pipe_read);
+	test_event("NOTIFY_PIPE_WRITE", OES_EVENT_NOTIFY_PIPE_WRITE, action_pipe_write);
+	test_event("NOTIFY_PIPE_STAT", OES_EVENT_NOTIFY_PIPE_STAT, action_pipe_stat);
+	test_event("NOTIFY_PIPE_POLL", OES_EVENT_NOTIFY_PIPE_POLL, action_pipe_poll);
+	test_event("NOTIFY_PIPE_IOCTL", OES_EVENT_NOTIFY_PIPE_IOCTL, action_pipe_ioctl);
 }
 
 static void
@@ -634,7 +634,7 @@ test_mount_events(void)
 {
 	printf("\n=== MOUNT EVENTS ===\n");
 
-	test_event("NOTIFY_MOUNT_STAT", ESC_EVENT_NOTIFY_MOUNT_STAT, action_mount_stat);
+	test_event("NOTIFY_MOUNT_STAT", OES_EVENT_NOTIFY_MOUNT_STAT, action_mount_stat);
 }
 
 static void
@@ -650,7 +650,7 @@ test_priv_events(void)
 
 	/* Root operations that trigger priv_check */
 	close_esc();
-	esc_event_type_t event = ESC_EVENT_NOTIFY_PRIV_CHECK;
+	oes_event_type_t event = OES_EVENT_NOTIFY_PRIV_CHECK;
 	if (setup_notify(&event, 1) < 0) {
 		SKIP("NOTIFY_PRIV_CHECK", "setup failed");
 		return;
@@ -666,7 +666,7 @@ test_priv_events(void)
 		_exit(0);
 	}
 	usleep(100000);
-	int seen = wait_for_event(ESC_EVENT_NOTIFY_PRIV_CHECK, pid, 1000);
+	int seen = wait_for_event(OES_EVENT_NOTIFY_PRIV_CHECK, pid, 1000);
 	int status;
 	waitpid(pid, &status, 0);
 	close_esc();
@@ -679,7 +679,7 @@ test_system_events(void)
 {
 	printf("\n=== SYSTEM EVENTS ===\n");
 
-	test_event("NOTIFY_SYSCTL", ESC_EVENT_NOTIFY_SYSCTL, action_sysctl);
+	test_event("NOTIFY_SYSCTL", OES_EVENT_NOTIFY_SYSCTL, action_sysctl);
 
 	/* Root-only events */
 	if (!is_root) {
@@ -718,14 +718,14 @@ test_cred_events(void)
 static void
 test_auth_denial(void)
 {
-	struct esc_mode_args margs;
-	struct esc_subscribe_args sargs;
-	struct esc_mute_args mute;
-	esc_event_type_t event = ESC_EVENT_AUTH_LINK;
+	struct oes_mode_args margs;
+	struct oes_subscribe_args sargs;
+	struct oes_mute_args mute;
+	oes_event_type_t event = OES_EVENT_AUTH_LINK;
 	pid_t pid;
 	int status;
-	esc_message_t msg;
-	esc_response_t resp;
+	oes_message_t msg;
+	oes_response_t resp;
 	ssize_t n;
 	struct pollfd pfd;
 
@@ -738,9 +738,9 @@ test_auth_denial(void)
 	}
 
 	memset(&margs, 0, sizeof(margs));
-	margs.ema_mode = ESC_MODE_AUTH;
+	margs.ema_mode = OES_MODE_AUTH;
 	margs.ema_timeout_ms = 500;
-	if (ioctl(esc_fd, ESC_IOC_SET_MODE, &margs) < 0) {
+	if (ioctl(oes_fd, OES_IOC_SET_MODE, &margs) < 0) {
 		FAIL("AUTH_LINK denial", "set mode failed");
 		close_esc();
 		return;
@@ -749,16 +749,16 @@ test_auth_denial(void)
 	memset(&sargs, 0, sizeof(sargs));
 	sargs.esa_events = &event;
 	sargs.esa_count = 1;
-	sargs.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(esc_fd, ESC_IOC_SUBSCRIBE, &sargs) < 0) {
+	sargs.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(oes_fd, OES_IOC_SUBSCRIBE, &sargs) < 0) {
 		FAIL("AUTH_LINK denial", "subscribe failed");
 		close_esc();
 		return;
 	}
 
 	memset(&mute, 0, sizeof(mute));
-	mute.emu_flags = ESC_MUTE_SELF;
-	(void)ioctl(esc_fd, ESC_IOC_MUTE_PROCESS, &mute);
+	mute.emu_flags = OES_MUTE_SELF;
+	(void)ioctl(oes_fd, OES_IOC_MUTE_PROCESS, &mute);
 
 	pid = fork();
 	if (pid == 0) {
@@ -770,15 +770,15 @@ test_auth_denial(void)
 		_exit(ret == 0 ? 1 : 0);
 	}
 
-	pfd.fd = esc_fd;
+	pfd.fd = oes_fd;
 	pfd.events = POLLIN;
 	if (poll(&pfd, 1, 2000) > 0) {
-		n = read(esc_fd, &msg, sizeof(msg));
-		if (n == sizeof(msg) && msg.em_event == ESC_EVENT_AUTH_LINK) {
+		n = read(oes_fd, &msg, sizeof(msg));
+		if (n == sizeof(msg) && msg.em_event == OES_EVENT_AUTH_LINK) {
 			memset(&resp, 0, sizeof(resp));
 			resp.er_id = msg.em_id;
-			resp.er_result = ESC_AUTH_DENY;
-			write(esc_fd, &resp, sizeof(resp));
+			resp.er_result = OES_AUTH_DENY;
+			write(oes_fd, &resp, sizeof(resp));
 		}
 	}
 
@@ -826,7 +826,7 @@ main(int argc, char **argv)
 
 	is_root = (geteuid() == 0);
 
-	printf("ESC Hook Coverage Tests\n");
+	printf("OES Hook Coverage Tests\n");
 	printf("========================\n");
 	printf("Running as: %s\n", is_root ? "root" : "user");
 

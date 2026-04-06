@@ -1,5 +1,5 @@
 /*
- * ESC memory pressure and resource exhaustion tests.
+ * OES memory pressure and resource exhaustion tests.
  *
  * Tests behavior under resource constraints including
  * many clients, many muted entries, and queue exhaustion.
@@ -17,10 +17,10 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 /*
- * Test opening many ESC clients.
+ * Test opening many OES clients.
  */
 static int
 test_many_clients(void)
@@ -31,10 +31,10 @@ test_many_clients(void)
 	printf("  Testing many concurrent clients (100)...\n");
 
 	for (i = 0; i < 100; i++) {
-		fds[i] = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+		fds[i] = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 		if (fds[i] < 0) {
 			if (opened == 0) {
-				perror("open /dev/esc (first)");
+				perror("open /dev/oes (first)");
 				return (1);
 			}
 			failed++;
@@ -62,22 +62,22 @@ static int
 test_many_auth_clients(void)
 {
 	int fds[50];
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_AUTH_EXEC };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_AUTH_EXEC };
 	int i, configured = 0;
 
 	printf("  Testing many AUTH clients (50)...\n");
 
 	for (i = 0; i < 50; i++) {
-		fds[i] = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+		fds[i] = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 		if (fds[i] < 0) {
 			continue;
 		}
 
 		memset(&mode, 0, sizeof(mode));
-		mode.ema_mode = ESC_MODE_AUTH;
-		if (ioctl(fds[i], ESC_IOC_SET_MODE, &mode) < 0) {
+		mode.ema_mode = OES_MODE_AUTH;
+		if (ioctl(fds[i], OES_IOC_SET_MODE, &mode) < 0) {
 			close(fds[i]);
 			fds[i] = -1;
 			continue;
@@ -86,8 +86,8 @@ test_many_auth_clients(void)
 		memset(&sub, 0, sizeof(sub));
 		sub.esa_events = events;
 		sub.esa_count = 1;
-		sub.esa_flags = ESC_SUB_REPLACE;
-		if (ioctl(fds[i], ESC_IOC_SUBSCRIBE, &sub) < 0) {
+		sub.esa_flags = OES_SUB_REPLACE;
+		if (ioctl(fds[i], OES_IOC_SUBSCRIBE, &sub) < 0) {
 			close(fds[i]);
 			fds[i] = -1;
 			continue;
@@ -115,25 +115,25 @@ static int
 test_many_muted_processes(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	struct esc_mute_args mute;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_EXEC };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	struct oes_mute_args mute;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_EXEC };
 	pid_t pids[100];
 	int i, muted = 0;
 
 	printf("  Testing many muted processes (100)...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -141,9 +141,9 @@ test_many_muted_processes(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -166,7 +166,7 @@ test_many_muted_processes(void)
 		mute.emu_token.ept_genid = 0;  /* Generation may not match */
 		mute.emu_flags = 0;
 
-		if (ioctl(fd, ESC_IOC_MUTE_PROCESS, &mute) == 0) {
+		if (ioctl(fd, OES_IOC_MUTE_PROCESS, &mute) == 0) {
 			muted++;
 		}
 	}
@@ -191,24 +191,24 @@ static int
 test_many_muted_paths(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	struct esc_mute_path_args mute;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_OPEN };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	struct oes_mute_path_args mute;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_OPEN };
 	int i, muted = 0;
 
 	printf("  Testing many muted paths (200)...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -216,9 +216,9 @@ test_many_muted_paths(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -228,9 +228,9 @@ test_many_muted_paths(void)
 		memset(&mute, 0, sizeof(mute));
 		snprintf(mute.emp_path, sizeof(mute.emp_path),
 		    "/tmp/mute_test_%04d", i);
-		mute.emp_type = ESC_MUTE_PATH_LITERAL;
+		mute.emp_type = OES_MUTE_PATH_LITERAL;
 
-		if (ioctl(fd, ESC_IOC_MUTE_PATH, &mute) == 0) {
+		if (ioctl(fd, OES_IOC_MUTE_PATH, &mute) == 0) {
 			muted++;
 		} else if (muted > 0 && errno == ENOMEM) {
 			printf("    INFO: hit memory limit at %d paths\n", muted);
@@ -241,7 +241,7 @@ test_many_muted_paths(void)
 	printf("    INFO: muted %d paths\n", muted);
 
 	/* Clear all */
-	if (ioctl(fd, ESC_IOC_UNMUTE_ALL_PATHS) < 0) {
+	if (ioctl(fd, OES_IOC_UNMUTE_ALL_PATHS) < 0) {
 		printf("    INFO: UNMUTE_ALL_PATHS: %s\n", strerror(errno));
 	}
 
@@ -257,9 +257,9 @@ static int
 test_queue_exhaustion(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_OPEN };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_OPEN };
 	pid_t pids[500];
 	int i, spawned = 0;
 	struct pollfd pfd;
@@ -267,16 +267,16 @@ test_queue_exhaustion(void)
 
 	printf("  Testing event queue exhaustion (500 events)...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -284,9 +284,9 @@ test_queue_exhaustion(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -319,7 +319,7 @@ test_queue_exhaustion(void)
 
 	int count = 0;
 	while (poll(&pfd, 1, 100) > 0) {
-		esc_message_t msg;
+		oes_message_t msg;
 		ssize_t n = read(fd, &msg, sizeof(msg));
 		if (n == sizeof(msg)) {
 			count++;
@@ -358,7 +358,7 @@ test_rapid_open_close(void)
 	printf("  Testing rapid open/close cycles (1000)...\n");
 
 	for (i = 0; i < 1000; i++) {
-		int fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+		int fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 		if (fd >= 0) {
 			close(fd);
 			succeeded++;
@@ -377,22 +377,22 @@ static int
 test_cache_filling(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	esc_cache_entry_t entry;
+	struct oes_mode_args mode;
+	oes_cache_entry_t entry;
 	int i, added = 0;
 
 	printf("  Testing decision cache filling...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_AUTH;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_AUTH;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -400,14 +400,14 @@ test_cache_filling(void)
 	/* Add many cache entries */
 	for (i = 0; i < 1000; i++) {
 		memset(&entry, 0, sizeof(entry));
-		entry.ece_key.eck_event = ESC_EVENT_AUTH_EXEC;
-		entry.ece_key.eck_flags = ESC_CACHE_KEY_PROCESS | ESC_CACHE_KEY_FILE;
+		entry.ece_key.eck_event = OES_EVENT_AUTH_EXEC;
+		entry.ece_key.eck_flags = OES_CACHE_KEY_PROCESS | OES_CACHE_KEY_FILE;
 		entry.ece_key.eck_process.ept_id = 1000 + i;
 		entry.ece_key.eck_file.eft_id = i;
 		entry.ece_key.eck_file.eft_dev = 0;
-		entry.ece_result = ESC_AUTH_ALLOW;
+		entry.ece_result = OES_AUTH_ALLOW;
 
-		if (ioctl(fd, ESC_IOC_CACHE_ADD, &entry) == 0) {
+		if (ioctl(fd, OES_IOC_CACHE_ADD, &entry) == 0) {
 			added++;
 		} else if (errno == ENOMEM || errno == ENOSPC) {
 			printf("    INFO: cache full at %d entries\n", added);
@@ -418,7 +418,7 @@ test_cache_filling(void)
 	printf("    INFO: added %d cache entries\n", added);
 
 	/* Clear cache */
-	if (ioctl(fd, ESC_IOC_CACHE_CLEAR) < 0) {
+	if (ioctl(fd, OES_IOC_CACHE_CLEAR) < 0) {
 		printf("    INFO: CACHE_CLEAR: %s\n", strerror(errno));
 	}
 
@@ -468,13 +468,13 @@ test_fd_limits(void)
 
 	printf("    INFO: opened %d /dev/null fds\n", opened);
 
-	/* Now try to open ESC */
-	int esc_fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
-	if (esc_fd >= 0) {
-		printf("    PASS: opened ESC near fd limit\n");
-		close(esc_fd);
+	/* Now try to open OES */
+	int oes_fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	if (oes_fd >= 0) {
+		printf("    PASS: opened OES near fd limit\n");
+		close(oes_fd);
 	} else {
-		printf("    INFO: couldn't open ESC near limit: %s\n",
+		printf("    INFO: couldn't open OES near limit: %s\n",
 		    strerror(errno));
 	}
 
@@ -494,32 +494,32 @@ static int
 test_subscribe_cycling(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events1[] = { ESC_EVENT_NOTIFY_EXEC };
-	esc_event_type_t events2[] = { ESC_EVENT_NOTIFY_OPEN, ESC_EVENT_NOTIFY_FORK };
-	esc_event_type_t events3[] = { ESC_EVENT_NOTIFY_EXIT };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events1[] = { OES_EVENT_NOTIFY_EXEC };
+	oes_event_type_t events2[] = { OES_EVENT_NOTIFY_OPEN, OES_EVENT_NOTIFY_FORK };
+	oes_event_type_t events3[] = { OES_EVENT_NOTIFY_EXIT };
 	int i;
 
 	printf("  Testing rapid subscribe cycling (500 times)...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
 
 	for (i = 0; i < 500; i++) {
 		memset(&sub, 0, sizeof(sub));
-		sub.esa_flags = ESC_SUB_REPLACE;
+		sub.esa_flags = OES_SUB_REPLACE;
 
 		switch (i % 3) {
 		case 0:
@@ -536,8 +536,8 @@ test_subscribe_cycling(void)
 			break;
 		}
 
-		if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-			perror("ESC_IOC_SUBSCRIBE");
+		if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+			perror("OES_IOC_SUBSCRIBE");
 			close(fd);
 			return (1);
 		}

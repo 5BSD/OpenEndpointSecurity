@@ -1,5 +1,5 @@
 /*
- * ESC extended attribute and ACL event tests.
+ * OES extended attribute and ACL event tests.
  *
  * Tests extattr get/set/delete/list and ACL operations.
  */
@@ -14,11 +14,11 @@ test_extattr_set_get(void)
 {
 	int fd, testfd;
 	char temppath[64];
-	esc_event_type_t events[] = {
-		ESC_EVENT_NOTIFY_SETEXTATTR,
-		ESC_EVENT_NOTIFY_GETEXTATTR,
+	oes_event_type_t events[] = {
+		OES_EVENT_NOTIFY_SETEXTATTR,
+		OES_EVENT_NOTIFY_GETEXTATTR,
 	};
-	esc_message_t msg;
+	oes_message_t msg;
 	const char *attrname = "test_attr";
 	const char *attrval = "test_value";
 	char buf[64];
@@ -31,12 +31,12 @@ test_extattr_set_get(void)
 	if (fd < 0)
 		return (1);
 
-	if (test_set_mode(fd, ESC_MODE_NOTIFY) < 0) {
+	if (test_set_mode(fd, OES_MODE_NOTIFY) < 0) {
 		close(fd);
 		return (1);
 	}
 
-	if (test_subscribe(fd, events, 2, ESC_SUB_REPLACE) < 0) {
+	if (test_subscribe(fd, events, 2, OES_SUB_REPLACE) < 0) {
 		close(fd);
 		return (1);
 	}
@@ -85,9 +85,9 @@ test_extattr_set_get(void)
 	/* Check for events */
 	for (int i = 0; i < 4; i++) {
 		if (test_wait_event(fd, &msg, 500) == 0) {
-			if (msg.em_event == ESC_EVENT_NOTIFY_SETEXTATTR)
+			if (msg.em_event == OES_EVENT_NOTIFY_SETEXTATTR)
 				got_set = 1;
-			else if (msg.em_event == ESC_EVENT_NOTIFY_GETEXTATTR)
+			else if (msg.em_event == OES_EVENT_NOTIFY_GETEXTATTR)
 				got_get = 1;
 		}
 	}
@@ -106,11 +106,11 @@ test_extattr_delete_list(void)
 {
 	int fd, testfd;
 	char temppath[64];
-	esc_event_type_t events[] = {
-		ESC_EVENT_NOTIFY_DELETEEXTATTR,
-		ESC_EVENT_NOTIFY_LISTEXTATTR,
+	oes_event_type_t events[] = {
+		OES_EVENT_NOTIFY_DELETEEXTATTR,
+		OES_EVENT_NOTIFY_LISTEXTATTR,
 	};
-	esc_message_t msg;
+	oes_message_t msg;
 	const char *attrname = "test_attr2";
 	const char *attrval = "test_value2";
 	char buf[256];
@@ -123,12 +123,12 @@ test_extattr_delete_list(void)
 	if (fd < 0)
 		return (1);
 
-	if (test_set_mode(fd, ESC_MODE_NOTIFY) < 0) {
+	if (test_set_mode(fd, OES_MODE_NOTIFY) < 0) {
 		close(fd);
 		return (1);
 	}
 
-	if (test_subscribe(fd, events, 2, ESC_SUB_REPLACE) < 0) {
+	if (test_subscribe(fd, events, 2, OES_SUB_REPLACE) < 0) {
 		close(fd);
 		return (1);
 	}
@@ -186,9 +186,9 @@ test_extattr_delete_list(void)
 	/* Check for events */
 	for (int i = 0; i < 4; i++) {
 		if (test_wait_event(fd, &msg, 500) == 0) {
-			if (msg.em_event == ESC_EVENT_NOTIFY_DELETEEXTATTR)
+			if (msg.em_event == OES_EVENT_NOTIFY_DELETEEXTATTR)
 				got_delete = 1;
-			else if (msg.em_event == ESC_EVENT_NOTIFY_LISTEXTATTR)
+			else if (msg.em_event == OES_EVENT_NOTIFY_LISTEXTATTR)
 				got_list = 1;
 		}
 	}
@@ -207,11 +207,11 @@ test_acl_get_set(void)
 {
 	int fd, testfd;
 	char temppath[64];
-	esc_event_type_t events[] = {
-		ESC_EVENT_NOTIFY_GETACL,
-		ESC_EVENT_NOTIFY_SETACL,
+	oes_event_type_t events[] = {
+		OES_EVENT_NOTIFY_GETACL,
+		OES_EVENT_NOTIFY_SETACL,
 	};
-	esc_message_t msg;
+	oes_message_t msg;
 	acl_t acl;
 	acl_type_t acl_type = ACL_TYPE_ACCESS;
 	int got_get = 0, got_set = 0;
@@ -222,12 +222,12 @@ test_acl_get_set(void)
 	if (fd < 0)
 		return (1);
 
-	if (test_set_mode(fd, ESC_MODE_NOTIFY) < 0) {
+	if (test_set_mode(fd, OES_MODE_NOTIFY) < 0) {
 		close(fd);
 		return (1);
 	}
 
-	if (test_subscribe(fd, events, 2, ESC_SUB_REPLACE) < 0) {
+	if (test_subscribe(fd, events, 2, OES_SUB_REPLACE) < 0) {
 		close(fd);
 		return (1);
 	}
@@ -281,9 +281,9 @@ test_acl_get_set(void)
 	/* Check for events */
 	for (int i = 0; i < 4; i++) {
 		if (test_wait_event(fd, &msg, 500) == 0) {
-			if (msg.em_event == ESC_EVENT_NOTIFY_GETACL)
+			if (msg.em_event == OES_EVENT_NOTIFY_GETACL)
 				got_get = 1;
-			else if (msg.em_event == ESC_EVENT_NOTIFY_SETACL)
+			else if (msg.em_event == OES_EVENT_NOTIFY_SETACL)
 				got_set = 1;
 		}
 	}
@@ -302,10 +302,10 @@ test_acl_delete(void)
 {
 	int fd, testfd;
 	char temppath[64];
-	esc_event_type_t events[] = {
-		ESC_EVENT_NOTIFY_DELETEACL,
+	oes_event_type_t events[] = {
+		OES_EVENT_NOTIFY_DELETEACL,
 	};
-	esc_message_t msg;
+	oes_message_t msg;
 	int got_delete = 0;
 
 	TEST_BEGIN("ACL delete event");
@@ -314,12 +314,12 @@ test_acl_delete(void)
 	if (fd < 0)
 		return (1);
 
-	if (test_set_mode(fd, ESC_MODE_NOTIFY) < 0) {
+	if (test_set_mode(fd, OES_MODE_NOTIFY) < 0) {
 		close(fd);
 		return (1);
 	}
 
-	if (test_subscribe(fd, events, 1, ESC_SUB_REPLACE) < 0) {
+	if (test_subscribe(fd, events, 1, OES_SUB_REPLACE) < 0) {
 		close(fd);
 		return (1);
 	}
@@ -348,7 +348,7 @@ test_acl_delete(void)
 	/* Check for events */
 	for (int i = 0; i < 2; i++) {
 		if (test_wait_event(fd, &msg, 500) == 0) {
-			if (msg.em_event == ESC_EVENT_NOTIFY_DELETEACL)
+			if (msg.em_event == OES_EVENT_NOTIFY_DELETEACL)
 				got_delete = 1;
 		}
 	}

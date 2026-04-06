@@ -6,25 +6,25 @@
 #endif
 
 BEGIN {
-	printf("esc signal/setid/ptrace workflow\n");
+	printf("oes signal/setid/ptrace workflow\n");
 }
 
-fbt::esc_mac_proc_check_signal:entry
+fbt::oes_mac_proc_check_signal:entry
 {
 	signal_evt++;
 }
 
-fbt::esc_mac_cred_check_setuid:entry
+fbt::oes_mac_cred_check_setuid:entry
 {
 	setuid_evt++;
 }
 
-fbt::esc_mac_cred_check_setgid:entry
+fbt::oes_mac_cred_check_setgid:entry
 {
 	setgid_evt++;
 }
 
-fbt::esc_mac_proc_check_debug:entry
+fbt::oes_mac_proc_check_debug:entry
 {
 	ptrace_evt++;
 }

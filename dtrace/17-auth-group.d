@@ -6,30 +6,30 @@
 #endif
 
 BEGIN {
-	printf("esc auth group workflow\n");
+	printf("oes auth group workflow\n");
 }
 
-fbt::esc_auth_group_alloc:entry
+fbt::oes_auth_group_alloc:entry
 {
 	alloc++;
 }
 
-fbt::esc_auth_group_add_pending:entry
+fbt::oes_auth_group_add_pending:entry
 {
 	add_pending++;
 }
 
-fbt::esc_auth_group_wait:entry
+fbt::oes_auth_group_wait:entry
 {
 	wait++;
 }
 
-fbt::esc_auth_group_mark_response:entry
+fbt::oes_auth_group_mark_response:entry
 {
 	mark++;
 }
 
-fbt::esc_auth_group_rele:entry
+fbt::oes_auth_group_rele:entry
 {
 	rele++;
 }

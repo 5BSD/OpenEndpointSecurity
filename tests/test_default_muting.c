@@ -1,7 +1,7 @@
 /*
- * ESC default muting sysctl tests.
+ * OES default muting sysctl tests.
  *
- * Tests security.esc.default_muted_paths and related sysctls.
+ * Tests security.oes.default_muted_paths and related sysctls.
  * Requires root privileges.
  */
 #include <sys/ioctl.h>
@@ -14,7 +14,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 static int
 test_read_default_paths_sysctl(void)
@@ -23,9 +23,9 @@ test_read_default_paths_sysctl(void)
 	size_t len = sizeof(buf);
 	int ret;
 
-	printf("  Testing read security.esc.default_muted_paths...\n");
+	printf("  Testing read security.oes.default_muted_paths...\n");
 
-	ret = sysctlbyname("security.esc.default_muted_paths", buf, &len, NULL, 0);
+	ret = sysctlbyname("security.oes.default_muted_paths", buf, &len, NULL, 0);
 	if (ret < 0) {
 		if (errno == ENOENT) {
 			printf("    INFO: sysctl not found (module not loaded?)\n");
@@ -47,9 +47,9 @@ test_read_default_self_mute_sysctl(void)
 	size_t len = sizeof(val);
 	int ret;
 
-	printf("  Testing read security.esc.default_self_mute...\n");
+	printf("  Testing read security.oes.default_self_mute...\n");
 
-	ret = sysctlbyname("security.esc.default_self_mute", &val, &len, NULL, 0);
+	ret = sysctlbyname("security.oes.default_self_mute", &val, &len, NULL, 0);
 	if (ret < 0) {
 		if (errno == ENOENT) {
 			printf("    INFO: sysctl not found (module not loaded?)\n");
@@ -72,7 +72,7 @@ test_write_default_paths_sysctl(void)
 	size_t old_len = sizeof(old_val);
 	int ret;
 
-	printf("  Testing write security.esc.default_muted_paths...\n");
+	printf("  Testing write security.oes.default_muted_paths...\n");
 
 	if (geteuid() != 0) {
 		printf("    SKIP: requires root\n");
@@ -80,7 +80,7 @@ test_write_default_paths_sysctl(void)
 	}
 
 	/* Save old value */
-	ret = sysctlbyname("security.esc.default_muted_paths", old_val, &old_len, NULL, 0);
+	ret = sysctlbyname("security.oes.default_muted_paths", old_val, &old_len, NULL, 0);
 	if (ret < 0) {
 		if (errno == ENOENT) {
 			printf("    INFO: sysctl not found (module not loaded?)\n");
@@ -91,7 +91,7 @@ test_write_default_paths_sysctl(void)
 	}
 
 	/* Write new value */
-	ret = sysctlbyname("security.esc.default_muted_paths", NULL, NULL,
+	ret = sysctlbyname("security.oes.default_muted_paths", NULL, NULL,
 	    new_val, strlen(new_val) + 1);
 	if (ret < 0) {
 		perror("sysctlbyname (write)");
@@ -99,7 +99,7 @@ test_write_default_paths_sysctl(void)
 	}
 
 	/* Restore old value */
-	ret = sysctlbyname("security.esc.default_muted_paths", NULL, NULL,
+	ret = sysctlbyname("security.oes.default_muted_paths", NULL, NULL,
 	    old_val, strlen(old_val) + 1);
 	if (ret < 0) {
 		perror("sysctlbyname (restore)");
@@ -114,11 +114,11 @@ static int
 test_default_mute_applied(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	struct esc_get_muted_paths_args get_paths;
-	struct esc_muted_path_entry entries[16];
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_OPEN };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	struct oes_get_muted_paths_args get_paths;
+	struct oes_muted_path_entry entries[16];
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_OPEN };
 	char old_val[1024];
 	char new_val[] = "/usr/share";
 	size_t old_len = sizeof(old_val);
@@ -134,7 +134,7 @@ test_default_mute_applied(void)
 	}
 
 	/* Save old sysctl value */
-	ret = sysctlbyname("security.esc.default_muted_paths", old_val, &old_len, NULL, 0);
+	ret = sysctlbyname("security.oes.default_muted_paths", old_val, &old_len, NULL, 0);
 	if (ret < 0) {
 		if (errno == ENOENT) {
 			printf("    INFO: sysctl not found (module not loaded?)\n");
@@ -145,7 +145,7 @@ test_default_mute_applied(void)
 	}
 
 	/* Set test value */
-	ret = sysctlbyname("security.esc.default_muted_paths", NULL, NULL,
+	ret = sysctlbyname("security.oes.default_muted_paths", NULL, NULL,
 	    new_val, strlen(new_val) + 1);
 	if (ret < 0) {
 		perror("sysctlbyname (write)");
@@ -153,21 +153,21 @@ test_default_mute_applied(void)
 	}
 
 	/* Open new client and set mode */
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		/* Restore */
-		sysctlbyname("security.esc.default_muted_paths", NULL, NULL,
+		sysctlbyname("security.oes.default_muted_paths", NULL, NULL,
 		    old_val, strlen(old_val) + 1);
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
-		sysctlbyname("security.esc.default_muted_paths", NULL, NULL,
+		sysctlbyname("security.oes.default_muted_paths", NULL, NULL,
 		    old_val, strlen(old_val) + 1);
 		return (1);
 	}
@@ -175,11 +175,11 @@ test_default_mute_applied(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
-		sysctlbyname("security.esc.default_muted_paths", NULL, NULL,
+		sysctlbyname("security.oes.default_muted_paths", NULL, NULL,
 		    old_val, strlen(old_val) + 1);
 		return (1);
 	}
@@ -188,10 +188,10 @@ test_default_mute_applied(void)
 	memset(&get_paths, 0, sizeof(get_paths));
 	get_paths.egmpa_entries = entries;
 	get_paths.egmpa_count = 16;
-	if (ioctl(fd, ESC_IOC_GET_MUTED_PATHS, &get_paths) < 0) {
-		perror("ESC_IOC_GET_MUTED_PATHS");
+	if (ioctl(fd, OES_IOC_GET_MUTED_PATHS, &get_paths) < 0) {
+		perror("OES_IOC_GET_MUTED_PATHS");
 		close(fd);
-		sysctlbyname("security.esc.default_muted_paths", NULL, NULL,
+		sysctlbyname("security.oes.default_muted_paths", NULL, NULL,
 		    old_val, strlen(old_val) + 1);
 		return (1);
 	}
@@ -206,7 +206,7 @@ test_default_mute_applied(void)
 	close(fd);
 
 	/* Restore old sysctl value */
-	sysctlbyname("security.esc.default_muted_paths", NULL, NULL,
+	sysctlbyname("security.oes.default_muted_paths", NULL, NULL,
 	    old_val, strlen(old_val) + 1);
 
 	if (found) {
@@ -223,11 +223,11 @@ static int
 test_default_self_mute(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	struct esc_get_muted_processes_args get_procs;
-	struct esc_muted_process_entry entries[16];
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_OPEN };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	struct oes_get_muted_processes_args get_procs;
+	struct oes_muted_process_entry entries[16];
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_OPEN };
 	int old_val, new_val = 1;
 	size_t old_len = sizeof(old_val);
 	int ret;
@@ -243,7 +243,7 @@ test_default_self_mute(void)
 	}
 
 	/* Save old sysctl value */
-	ret = sysctlbyname("security.esc.default_self_mute", &old_val, &old_len, NULL, 0);
+	ret = sysctlbyname("security.oes.default_self_mute", &old_val, &old_len, NULL, 0);
 	if (ret < 0) {
 		if (errno == ENOENT) {
 			printf("    INFO: sysctl not found (module not loaded?)\n");
@@ -254,7 +254,7 @@ test_default_self_mute(void)
 	}
 
 	/* Enable default self-mute */
-	ret = sysctlbyname("security.esc.default_self_mute", NULL, NULL,
+	ret = sysctlbyname("security.oes.default_self_mute", NULL, NULL,
 	    &new_val, sizeof(new_val));
 	if (ret < 0) {
 		perror("sysctlbyname (write)");
@@ -262,20 +262,20 @@ test_default_self_mute(void)
 	}
 
 	/* Open new client */
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
-		sysctlbyname("security.esc.default_self_mute", NULL, NULL,
+		perror("open /dev/oes");
+		sysctlbyname("security.oes.default_self_mute", NULL, NULL,
 		    &old_val, sizeof(old_val));
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
-		sysctlbyname("security.esc.default_self_mute", NULL, NULL,
+		sysctlbyname("security.oes.default_self_mute", NULL, NULL,
 		    &old_val, sizeof(old_val));
 		return (1);
 	}
@@ -283,11 +283,11 @@ test_default_self_mute(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
-		sysctlbyname("security.esc.default_self_mute", NULL, NULL,
+		sysctlbyname("security.oes.default_self_mute", NULL, NULL,
 		    &old_val, sizeof(old_val));
 		return (1);
 	}
@@ -296,10 +296,10 @@ test_default_self_mute(void)
 	memset(&get_procs, 0, sizeof(get_procs));
 	get_procs.egmp_entries = entries;
 	get_procs.egmp_count = 16;
-	if (ioctl(fd, ESC_IOC_GET_MUTED_PROCESSES, &get_procs) < 0) {
-		perror("ESC_IOC_GET_MUTED_PROCESSES");
+	if (ioctl(fd, OES_IOC_GET_MUTED_PROCESSES, &get_procs) < 0) {
+		perror("OES_IOC_GET_MUTED_PROCESSES");
 		close(fd);
-		sysctlbyname("security.esc.default_self_mute", NULL, NULL,
+		sysctlbyname("security.oes.default_self_mute", NULL, NULL,
 		    &old_val, sizeof(old_val));
 		return (1);
 	}
@@ -314,7 +314,7 @@ test_default_self_mute(void)
 	close(fd);
 
 	/* Restore old sysctl value */
-	sysctlbyname("security.esc.default_self_mute", NULL, NULL,
+	sysctlbyname("security.oes.default_self_mute", NULL, NULL,
 	    &old_val, sizeof(old_val));
 
 	if (found) {

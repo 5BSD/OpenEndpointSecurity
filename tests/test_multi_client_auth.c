@@ -1,5 +1,5 @@
 /*
- * ESC multi-client AUTH arbitration test.
+ * OES multi-client AUTH arbitration test.
  */
 #include <sys/ioctl.h>
 #include <sys/poll.h>
@@ -13,12 +13,12 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 #define RESP_NONE 2
 
 static int
-wait_for_auth_open(int fd, pid_t pid, int timeout_ms, esc_message_t *out)
+wait_for_auth_open(int fd, pid_t pid, int timeout_ms, oes_message_t *out)
 {
 	struct pollfd pfd;
 	struct timespec start;
@@ -38,7 +38,7 @@ wait_for_auth_open(int fd, pid_t pid, int timeout_ms, esc_message_t *out)
 			break;
 
 		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			esc_message_t msg;
+			oes_message_t msg;
 			ssize_t n = read(fd, &msg, sizeof(msg));
 			if (n < 0) {
 				if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -48,9 +48,9 @@ wait_for_auth_open(int fd, pid_t pid, int timeout_ms, esc_message_t *out)
 			}
 			if ((size_t)n != sizeof(msg))
 				continue;
-			if (msg.em_event != ESC_EVENT_AUTH_OPEN)
+			if (msg.em_event != OES_EVENT_AUTH_OPEN)
 				continue;
-			if (msg.em_action != ESC_ACTION_AUTH)
+			if (msg.em_action != OES_ACTION_AUTH)
 				continue;
 			if (msg.em_process.ep_pid != pid)
 				continue;
@@ -65,35 +65,35 @@ wait_for_auth_open(int fd, pid_t pid, int timeout_ms, esc_message_t *out)
 
 static int
 setup_auth_client(int *out_fd, uint32_t timeout_ms,
-    esc_auth_result_t timeout_action)
+    oes_auth_result_t timeout_action)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_timeout_action_args action;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = {
-		ESC_EVENT_AUTH_OPEN,
+	struct oes_mode_args mode;
+	struct oes_timeout_action_args action;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = {
+		OES_EVENT_AUTH_OPEN,
 	};
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (-1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_AUTH;
+	mode.ema_mode = OES_MODE_AUTH;
 	mode.ema_timeout_ms = timeout_ms;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (-1);
 	}
 
 	memset(&action, 0, sizeof(action));
 	action.eta_action = timeout_action;
-	if (ioctl(fd, ESC_IOC_SET_TIMEOUT_ACTION, &action) < 0) {
-		perror("ESC_IOC_SET_TIMEOUT_ACTION");
+	if (ioctl(fd, OES_IOC_SET_TIMEOUT_ACTION, &action) < 0) {
+		perror("OES_IOC_SET_TIMEOUT_ACTION");
 		close(fd);
 		return (-1);
 	}
@@ -101,9 +101,9 @@ setup_auth_client(int *out_fd, uint32_t timeout_ms,
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = sizeof(events) / sizeof(events[0]);
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (-1);
 	}
@@ -113,7 +113,7 @@ setup_auth_client(int *out_fd, uint32_t timeout_ms,
 }
 
 static int
-run_scenario(const char *name, esc_auth_result_t r1, esc_auth_result_t r2,
+run_scenario(const char *name, oes_auth_result_t r1, oes_auth_result_t r2,
     int timeout2, int expect_errno)
 {
 	int fd1;
@@ -121,16 +121,16 @@ run_scenario(const char *name, esc_auth_result_t r1, esc_auth_result_t r2,
 	int ctl_pipe[2];
 	int res_pipe[2];
 	pid_t child;
-	esc_message_t msg1;
-	esc_message_t msg2;
-	esc_response_t resp;
+	oes_message_t msg1;
+	oes_message_t msg2;
+	oes_response_t resp;
 	int err = 0;
 	int status;
 	char cmd = 'g';
 
-	if (setup_auth_client(&fd1, 500, ESC_AUTH_ALLOW) != 0)
+	if (setup_auth_client(&fd1, 500, OES_AUTH_ALLOW) != 0)
 		return (1);
-	if (setup_auth_client(&fd2, timeout2, ESC_AUTH_DENY) != 0) {
+	if (setup_auth_client(&fd2, timeout2, OES_AUTH_DENY) != 0) {
 		close(fd1);
 		return (1);
 	}
@@ -187,7 +187,7 @@ run_scenario(const char *name, esc_auth_result_t r1, esc_auth_result_t r2,
 		goto fail;
 	}
 
-	if (r2 != ESC_AUTH_ALLOW && r2 != ESC_AUTH_DENY) {
+	if (r2 != OES_AUTH_ALLOW && r2 != OES_AUTH_DENY) {
 		/* No response for fd2 (timeout scenario). */
 	} else {
 		memset(&resp, 0, sizeof(resp));
@@ -230,13 +230,13 @@ fail:
 int
 main(void)
 {
-	if (run_scenario("allow", ESC_AUTH_ALLOW, ESC_AUTH_ALLOW,
+	if (run_scenario("allow", OES_AUTH_ALLOW, OES_AUTH_ALLOW,
 	    500, 0) != 0)
 		return (1);
-	if (run_scenario("deny", ESC_AUTH_ALLOW, ESC_AUTH_DENY,
+	if (run_scenario("deny", OES_AUTH_ALLOW, OES_AUTH_DENY,
 	    500, EACCES) != 0)
 		return (1);
-	if (run_scenario("timeout", ESC_AUTH_ALLOW, RESP_NONE, 200, EACCES) != 0)
+	if (run_scenario("timeout", OES_AUTH_ALLOW, RESP_NONE, 200, EACCES) != 0)
 		return (1);
 
 	printf("multi-client auth: ok\n");

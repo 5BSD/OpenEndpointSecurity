@@ -6,15 +6,15 @@
 #endif
 
 BEGIN {
-	printf("esc exec args workflow\n");
+	printf("oes exec args workflow\n");
 }
 
-fbt::esc_generate_exec_event:entry
+fbt::oes_generate_exec_event:entry
 {
 	exec_gen++;
 }
 
-fbt::esc_event_get_args:entry
+fbt::oes_event_get_args:entry
 {
 	get_args++;
 }

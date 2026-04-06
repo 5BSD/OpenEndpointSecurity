@@ -4,14 +4,14 @@
  * Copyright (c) 2026 Kory Heard <koryheard@icloud.com>
  * All rights reserved.
  *
- * escd - Endpoint Security Capabilities Daemon
+ * oesd - Endpoint Security Capabilities Daemon
  *
- * This is the system daemon that owns /dev/esc and creates
+ * This is the system daemon that owns /dev/oes and creates
  * restricted handles for third-party security vendors.
  *
- * Usage: escd [-d] [-s socket_path]
+ * Usage: oesd [-d] [-s socket_path]
  *   -d  Debug mode (don't daemonize)
- *   -s  Unix socket path (default: /var/run/escd.sock)
+ *   -s  Unix socket path (default: /var/run/oesd.sock)
  */
 
 #include <sys/types.h>
@@ -30,9 +30,9 @@
 #include <syslog.h>
 #include <unistd.h>
 
-#include "libesc.h"
+#include "liboes.h"
 
-#define DEFAULT_SOCKET_PATH	"/var/run/escd.sock"
+#define DEFAULT_SOCKET_PATH	"/var/run/oesd.sock"
 
 static int debug_mode = 0;
 static volatile sig_atomic_t running = 1;
@@ -40,7 +40,7 @@ static volatile sig_atomic_t running = 1;
 static void
 usage(void)
 {
-	fprintf(stderr, "usage: escd [-d] [-s socket_path]\n");
+	fprintf(stderr, "usage: oesd [-d] [-s socket_path]\n");
 	exit(1);
 }
 
@@ -88,17 +88,17 @@ send_fd(int sock, int fd)
 }
 
 /*
- * Create a restricted esc fd for a third-party client
+ * Create a restricted oes fd for a third-party client
  */
 static int
-create_vendor_fd(int esc_fd)
+create_vendor_fd(int oes_fd)
 {
 	int vendor_fd;
 	cap_rights_t rights;
-	cap_ioctl_t allowed[] = ESC_IOCTLS_THIRD_PARTY_INIT;
+	cap_ioctl_t allowed[] = OES_IOCTLS_THIRD_PARTY_INIT;
 
 	/* Duplicate the fd */
-	vendor_fd = dup(esc_fd);
+	vendor_fd = dup(oes_fd);
 	if (vendor_fd < 0)
 		return (-1);
 
@@ -122,11 +122,11 @@ create_vendor_fd(int esc_fd)
  * Handle a client connection
  */
 static void
-handle_client(int client_sock, int esc_fd)
+handle_client(int client_sock, int oes_fd)
 {
 	int vendor_fd;
 
-	vendor_fd = create_vendor_fd(esc_fd);
+	vendor_fd = create_vendor_fd(oes_fd);
 	if (vendor_fd < 0) {
 		syslog(LOG_ERR, "failed to create vendor fd: %m");
 		return;
@@ -142,22 +142,22 @@ handle_client(int client_sock, int esc_fd)
 }
 
 /*
- * Event handler for our own esc events
+ * Event handler for our own oes events
  */
 static bool
-event_handler(esc_client_t *client, const esc_message_t *msg, void *ctx __unused)
+event_handler(oes_client_t *client, const oes_message_t *msg, void *ctx __unused)
 {
 
 	if (debug_mode) {
 		printf("Event: %s pid=%d comm=%s\n",
-		    esc_event_name(msg->em_event),
+		    oes_event_name(msg->em_event),
 		    msg->em_process.ep_pid,
 		    msg->em_process.ep_comm);
 	}
 
 	/* For AUTH events, always allow (we're just monitoring) */
-	if (esc_is_auth_event(msg)) {
-		esc_respond_allow(client, msg);
+	if (oes_is_auth_event(msg)) {
+		oes_respond_allow(client, msg);
 	}
 
 	return (running != 0);
@@ -166,8 +166,8 @@ event_handler(esc_client_t *client, const esc_message_t *msg, void *ctx __unused
 int
 main(int argc, char *argv[])
 {
-	esc_client_t *client;
-	int esc_fd, listen_sock, kq;
+	oes_client_t *client;
+	int oes_fd, listen_sock, kq;
 	struct sockaddr_un sun;
 	struct kevent kev[2];
 	const char *socket_path = DEFAULT_SOCKET_PATH;
@@ -186,24 +186,24 @@ main(int argc, char *argv[])
 		}
 	}
 
-	/* Open the ESC device */
-	client = esc_client_create();
+	/* Open the OES device */
+	client = oes_client_create();
 	if (client == NULL)
-		err(1, "esc_client_create");
+		err(1, "oes_client_create");
 
-	esc_fd = esc_client_fd(client);
+	oes_fd = oes_client_fd(client);
 
 	/* Set AUTH mode so we can respond to events */
-	if (esc_set_mode(client, ESC_MODE_AUTH, 0, 0) < 0)
-		err(1, "esc_set_mode");
+	if (oes_set_mode(client, OES_MODE_AUTH, 0, 0) < 0)
+		err(1, "oes_set_mode");
 
 	/* Subscribe to all events */
-	if (esc_subscribe_all(client, true, true) < 0)
-		err(1, "esc_subscribe_all");
+	if (oes_subscribe_all(client, true, true) < 0)
+		err(1, "oes_subscribe_all");
 
 	/* Mute ourselves to avoid recursion */
-	if (esc_mute_self(client) < 0)
-		err(1, "esc_mute_self");
+	if (oes_mute_self(client) < 0)
+		err(1, "oes_mute_self");
 
 	/* Create Unix socket for client connections */
 	listen_sock = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -225,7 +225,7 @@ main(int argc, char *argv[])
 	if (!debug_mode) {
 		if (daemon(0, 0) < 0)
 			err(1, "daemon");
-		openlog("escd", LOG_PID, LOG_DAEMON);
+		openlog("oesd", LOG_PID, LOG_DAEMON);
 	}
 
 	signal(SIGINT, sighandler);
@@ -238,7 +238,7 @@ main(int argc, char *argv[])
 	if (kq < 0)
 		err(1, "kqueue");
 
-	EV_SET(&kev[0], esc_fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
+	EV_SET(&kev[0], oes_fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
 	EV_SET(&kev[1], listen_sock, EVFILT_READ, EV_ADD, 0, 0, NULL);
 
 	if (kevent(kq, kev, 2, NULL, 0, NULL) < 0)
@@ -254,17 +254,17 @@ main(int argc, char *argv[])
 		}
 
 		for (int i = 0; i < n; i++) {
-			if ((int)kev[i].ident == esc_fd) {
-				/* ESC event available */
-				esc_message_t msg;
-				if (esc_read_event(client, &msg, false) == 0) {
+			if ((int)kev[i].ident == oes_fd) {
+				/* OES event available */
+				oes_message_t msg;
+				if (oes_read_event(client, &msg, false) == 0) {
 					event_handler(client, &msg, NULL);
 				}
 			} else if ((int)kev[i].ident == listen_sock) {
 				/* New client connection */
 				int client_sock = accept(listen_sock, NULL, NULL);
 				if (client_sock >= 0) {
-					handle_client(client_sock, esc_fd);
+					handle_client(client_sock, oes_fd);
 					close(client_sock);
 				}
 			}
@@ -276,7 +276,7 @@ main(int argc, char *argv[])
 	close(kq);
 	close(listen_sock);
 	unlink(socket_path);
-	esc_client_destroy(client);
+	oes_client_destroy(client);
 
 	return (0);
 }

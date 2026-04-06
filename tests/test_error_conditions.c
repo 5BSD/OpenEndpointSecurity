@@ -1,5 +1,5 @@
 /*
- * ESC error condition tests.
+ * OES error condition tests.
  *
  * Tests invalid ioctl arguments, boundary conditions, error handling.
  */
@@ -12,25 +12,25 @@
 #include <string.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 static int
 test_invalid_mode(void)
 {
 	int fd;
-	struct esc_mode_args mode;
+	struct oes_mode_args mode;
 
 	printf("  Testing invalid mode...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
 	mode.ema_mode = 999; /* Invalid mode */
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) == 0) {
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) == 0) {
 		fprintf(stderr, "FAIL: invalid mode accepted\n");
 		close(fd);
 		return (1);
@@ -51,14 +51,14 @@ static int
 test_subscribe_without_mode(void)
 {
 	int fd;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_EXEC };
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_EXEC };
 
 	printf("  Testing subscribe without mode...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
@@ -69,8 +69,8 @@ test_subscribe_without_mode(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
 		/* Some implementations may reject this - that's OK too */
 		printf("    INFO: subscribe without mode rejected (%s)\n",
 		    strerror(errno));
@@ -87,21 +87,21 @@ static int
 test_null_event_array(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
 
 	printf("  Testing NULL event array...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -110,8 +110,8 @@ test_null_event_array(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = NULL;
 	sub.esa_count = 5;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) == 0) {
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) == 0) {
 		fprintf(stderr, "FAIL: NULL event array accepted\n");
 		close(fd);
 		return (1);
@@ -126,22 +126,22 @@ static int
 test_zero_event_count(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_EXEC };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_EXEC };
 
 	printf("  Testing zero event count...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -150,8 +150,8 @@ test_zero_event_count(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 0;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
 		/* May or may not be an error depending on implementation */
 		/* Just note the behavior */
 	}
@@ -165,22 +165,22 @@ static int
 test_invalid_event_type(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { 0xFFFF }; /* Invalid event type */
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { 0xFFFF }; /* Invalid event type */
 
 	printf("  Testing invalid event type...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -188,8 +188,8 @@ test_invalid_event_type(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) == 0) {
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) == 0) {
 		/* May silently ignore invalid events */
 		printf("    INFO: invalid event type accepted (ignored)\n");
 	} else {
@@ -205,22 +205,22 @@ static int
 test_auth_event_in_notify_mode(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_AUTH_EXEC }; /* AUTH event */
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_AUTH_EXEC }; /* AUTH event */
 
 	printf("  Testing AUTH event in NOTIFY mode...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY; /* NOTIFY mode */
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY; /* NOTIFY mode */
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -229,9 +229,9 @@ test_auth_event_in_notify_mode(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
+	sub.esa_flags = OES_SUB_REPLACE;
 	/* This may or may not be an error */
-	(void)ioctl(fd, ESC_IOC_SUBSCRIBE, &sub);
+	(void)ioctl(fd, OES_IOC_SUBSCRIBE, &sub);
 
 	close(fd);
 	printf("    PASS: AUTH event in NOTIFY mode handled\n");
@@ -242,21 +242,21 @@ static int
 test_response_without_pending(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	esc_response_t resp;
+	struct oes_mode_args mode;
+	oes_response_t resp;
 
 	printf("  Testing response without pending event...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_AUTH;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_AUTH;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -264,7 +264,7 @@ test_response_without_pending(void)
 	/* Try to respond to non-existent event */
 	memset(&resp, 0, sizeof(resp));
 	resp.er_id = 12345; /* Fake ID */
-	resp.er_result = ESC_AUTH_ALLOW;
+	resp.er_result = OES_AUTH_ALLOW;
 	if (write(fd, &resp, sizeof(resp)) > 0) {
 		/* May silently ignore */
 		printf("    INFO: response to non-existent event accepted\n");
@@ -281,22 +281,22 @@ static int
 test_read_without_subscribe(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	esc_message_t msg;
+	struct oes_mode_args mode;
+	oes_message_t msg;
 	ssize_t n;
 
 	printf("  Testing read without subscribe...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -319,27 +319,27 @@ static int
 test_double_mode_set(void)
 {
 	int fd;
-	struct esc_mode_args mode;
+	struct oes_mode_args mode;
 
 	printf("  Testing double mode set...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
 
 	/* Try to set mode again */
-	mode.ema_mode = ESC_MODE_AUTH;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) == 0) {
+	mode.ema_mode = OES_MODE_AUTH;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) == 0) {
 		printf("    INFO: double mode set accepted (mode changed)\n");
 	} else {
 		printf("    INFO: double mode set rejected\n");
@@ -354,23 +354,23 @@ static int
 test_mute_invalid_token(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	struct esc_mute_args mute;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_EXEC };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	struct oes_mute_args mute;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_EXEC };
 
 	printf("  Testing mute with invalid token...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -378,9 +378,9 @@ test_mute_invalid_token(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -390,7 +390,7 @@ test_mute_invalid_token(void)
 	mute.emu_token.ept_id = 999999999; /* Very unlikely PID */
 	mute.emu_token.ept_genid = 0;
 	mute.emu_flags = 0;
-	if (ioctl(fd, ESC_IOC_MUTE_PROCESS, &mute) == 0) {
+	if (ioctl(fd, OES_IOC_MUTE_PROCESS, &mute) == 0) {
 		printf("    INFO: mute with invalid token accepted\n");
 	} else {
 		printf("    INFO: mute with invalid token rejected\n");

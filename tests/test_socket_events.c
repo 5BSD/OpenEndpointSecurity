@@ -1,5 +1,5 @@
 /*
- * ESC socket event tests.
+ * OES socket event tests.
  *
  * Tests SOCKET_CONNECT, SOCKET_BIND, SOCKET_LISTEN events.
  */
@@ -19,16 +19,16 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 #define TEST_PORT	54321
-#define TEST_SOCKET	"/tmp/esc_test.sock"
+#define TEST_SOCKET	"/tmp/oes_test.sock"
 
 static int
 read_socket_events(int fd, pid_t child_pid, int *connect_seen, int *bind_seen,
     int *listen_seen)
 {
-	esc_message_t msg;
+	oes_message_t msg;
 	ssize_t n;
 
 	for (;;) {
@@ -48,15 +48,15 @@ read_socket_events(int fd, pid_t child_pid, int *connect_seen, int *bind_seen,
 			continue;
 
 		switch (msg.em_event) {
-		case ESC_EVENT_NOTIFY_SOCKET_CONNECT:
+		case OES_EVENT_NOTIFY_SOCKET_CONNECT:
 			*connect_seen = 1;
 			fprintf(stderr, "  got NOTIFY_SOCKET_CONNECT\n");
 			break;
-		case ESC_EVENT_NOTIFY_SOCKET_BIND:
+		case OES_EVENT_NOTIFY_SOCKET_BIND:
 			*bind_seen = 1;
 			fprintf(stderr, "  got NOTIFY_SOCKET_BIND\n");
 			break;
-		case ESC_EVENT_NOTIFY_SOCKET_LISTEN:
+		case OES_EVENT_NOTIFY_SOCKET_LISTEN:
 			*listen_seen = 1;
 			fprintf(stderr, "  got NOTIFY_SOCKET_LISTEN\n");
 			break;
@@ -111,12 +111,12 @@ static int
 test_socket_events(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = {
-		ESC_EVENT_NOTIFY_SOCKET_CONNECT,
-		ESC_EVENT_NOTIFY_SOCKET_BIND,
-		ESC_EVENT_NOTIFY_SOCKET_LISTEN,
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = {
+		OES_EVENT_NOTIFY_SOCKET_CONNECT,
+		OES_EVENT_NOTIFY_SOCKET_BIND,
+		OES_EVENT_NOTIFY_SOCKET_LISTEN,
 	};
 	pid_t pid;
 	int connect_seen = 0, bind_seen = 0, listen_seen = 0;
@@ -126,16 +126,16 @@ test_socket_events(void)
 
 	printf("  Testing socket events (connect/bind/listen)...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -143,9 +143,9 @@ test_socket_events(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = sizeof(events) / sizeof(events[0]);
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -205,11 +205,11 @@ static int
 test_unix_socket(void)
 {
 	int fd, sock;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
 	struct sockaddr_un addr;
-	esc_event_type_t events[] = {
-		ESC_EVENT_NOTIFY_SOCKET_BIND,
+	oes_event_type_t events[] = {
+		OES_EVENT_NOTIFY_SOCKET_BIND,
 	};
 	pid_t pid;
 	int bind_seen = 0;
@@ -220,16 +220,16 @@ test_unix_socket(void)
 
 	(void)unlink(TEST_SOCKET);
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -237,9 +237,9 @@ test_unix_socket(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}

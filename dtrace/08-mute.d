@@ -6,36 +6,36 @@
 #endif
 
 BEGIN {
-	printf("esc mute workflow\n");
+	printf("oes mute workflow\n");
 }
 
-fbt::esc_client_mute:entry
+fbt::oes_client_mute:entry
 {
 	mute++;
 }
 
-fbt::esc_client_unmute:entry
+fbt::oes_client_unmute:entry
 {
 	unmute++;
 }
 
-fbt::esc_client_mute_path:entry
+fbt::oes_client_mute_path:entry
 {
 	mute_path++;
 }
 
-fbt::esc_client_unmute_path:entry
+fbt::oes_client_unmute_path:entry
 {
 	unmute_path++;
 }
 
-fbt::esc_client_is_muted:return
+fbt::oes_client_is_muted:return
 /retval == 1/
 {
 	muted_hit++;
 }
 
-fbt::esc_event_is_path_muted:return
+fbt::oes_event_is_path_muted:return
 /retval == 1/
 {
 	path_muted_hit++;

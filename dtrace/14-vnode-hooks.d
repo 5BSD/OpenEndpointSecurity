@@ -6,10 +6,10 @@
 #endif
 
 BEGIN {
-	printf("esc vnode hook coverage\n");
+	printf("oes vnode hook coverage\n");
 }
 
-fbt::esc_mac_vnode_check_*:entry
+fbt::oes_mac_vnode_check_*:entry
 {
 	hooks++;
 	@byhook[probefunc] = count();

@@ -1,5 +1,5 @@
 /*
- * ESC exec arguments test.
+ * OES exec arguments test.
  *
  * Tests that argv and envp are embedded in EXEC events.
  */
@@ -15,7 +15,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 /*
  * Test retrieving argv from an AUTH_EXEC event.
@@ -24,11 +24,11 @@ static int
 test_embedded_argv(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_AUTH_EXEC };
-	esc_message_t msg;
-	esc_response_t resp;
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_AUTH_EXEC };
+	oes_message_t msg;
+	oes_response_t resp;
 	struct pollfd pfd;
 	pid_t pid;
 	ssize_t n;
@@ -37,17 +37,17 @@ test_embedded_argv(void)
 
 	printf("  Testing embedded argv in EXEC event...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_AUTH;
+	mode.ema_mode = OES_MODE_AUTH;
 	mode.ema_timeout_ms = 5000;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -55,9 +55,9 @@ test_embedded_argv(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -82,8 +82,8 @@ test_embedded_argv(void)
 
 	if (poll(&pfd, 1, 3000) > 0 && (pfd.revents & POLLIN)) {
 		n = read(fd, &msg, sizeof(msg));
-		if (n == sizeof(msg) && msg.em_event == ESC_EVENT_AUTH_EXEC) {
-			esc_event_exec_t *exec = &msg.em_event_data.exec;
+		if (n == sizeof(msg) && msg.em_event == OES_EVENT_AUTH_EXEC) {
+			oes_event_exec_t *exec = &msg.em_event_data.exec;
 			got_event = 1;
 
 			printf("    INFO: argc=%u, argv_len=%u, envp_len=%u, flags=0x%x\n",
@@ -119,7 +119,7 @@ test_embedded_argv(void)
 			/* Allow the exec */
 			memset(&resp, 0, sizeof(resp));
 			resp.er_id = msg.em_id;
-			resp.er_result = ESC_AUTH_ALLOW;
+			resp.er_result = OES_AUTH_ALLOW;
 			(void)write(fd, &resp, sizeof(resp));
 		}
 	}
@@ -142,11 +142,11 @@ static int
 test_embedded_envp(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_AUTH_EXEC };
-	esc_message_t msg;
-	esc_response_t resp;
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_AUTH_EXEC };
+	oes_message_t msg;
+	oes_response_t resp;
 	struct pollfd pfd;
 	pid_t pid;
 	ssize_t n;
@@ -155,17 +155,17 @@ test_embedded_envp(void)
 
 	printf("  Testing embedded envp in EXEC event...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_AUTH;
+	mode.ema_mode = OES_MODE_AUTH;
 	mode.ema_timeout_ms = 5000;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -173,9 +173,9 @@ test_embedded_envp(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -190,7 +190,7 @@ test_embedded_envp(void)
 
 	if (pid == 0) {
 		/* Child - set a test env var and exec */
-		setenv("ESC_TEST_VAR", "test_value_12345", 1);
+		setenv("OES_TEST_VAR", "test_value_12345", 1);
 		execl("/bin/true", "true", NULL);
 		_exit(127);
 	}
@@ -201,8 +201,8 @@ test_embedded_envp(void)
 
 	if (poll(&pfd, 1, 3000) > 0 && (pfd.revents & POLLIN)) {
 		n = read(fd, &msg, sizeof(msg));
-		if (n == sizeof(msg) && msg.em_event == ESC_EVENT_AUTH_EXEC) {
-			esc_event_exec_t *exec = &msg.em_event_data.exec;
+		if (n == sizeof(msg) && msg.em_event == OES_EVENT_AUTH_EXEC) {
+			oes_event_exec_t *exec = &msg.em_event_data.exec;
 			got_event = 1;
 
 			printf("    INFO: argc=%u, envc=%u, argv_len=%u, envp_len=%u\n",
@@ -218,7 +218,7 @@ test_embedded_envp(void)
 				while (pos < exec->argv_len + exec->envp_len && envc < 100) {
 					size_t len = strlen(exec->args + pos);
 					if (len > 0) {
-						if (strstr(exec->args + pos, "ESC_TEST_VAR=") != NULL) {
+						if (strstr(exec->args + pos, "OES_TEST_VAR=") != NULL) {
 							printf("    INFO: Found test var: %s\n",
 							    exec->args + pos);
 							found_test_var = 1;
@@ -242,7 +242,7 @@ test_embedded_envp(void)
 			/* Allow the exec */
 			memset(&resp, 0, sizeof(resp));
 			resp.er_id = msg.em_id;
-			resp.er_result = ESC_AUTH_ALLOW;
+			resp.er_result = OES_AUTH_ALLOW;
 			(void)write(fd, &resp, sizeof(resp));
 		}
 	}
@@ -265,10 +265,10 @@ static int
 test_notify_embedded_args(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_EXEC };
-	esc_message_t msg;
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_EXEC };
+	oes_message_t msg;
 	struct pollfd pfd;
 	pid_t pid;
 	ssize_t n;
@@ -277,16 +277,16 @@ test_notify_embedded_args(void)
 
 	printf("  Testing embedded args in NOTIFY_EXEC event...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -294,9 +294,9 @@ test_notify_embedded_args(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -320,8 +320,8 @@ test_notify_embedded_args(void)
 
 	if (poll(&pfd, 1, 3000) > 0 && (pfd.revents & POLLIN)) {
 		n = read(fd, &msg, sizeof(msg));
-		if (n == sizeof(msg) && msg.em_event == ESC_EVENT_NOTIFY_EXEC) {
-			esc_event_exec_t *exec = &msg.em_event_data.exec;
+		if (n == sizeof(msg) && msg.em_event == OES_EVENT_NOTIFY_EXEC) {
+			oes_event_exec_t *exec = &msg.em_event_data.exec;
 			got_event = 1;
 
 			printf("    INFO: NOTIFY argc=%u, argv_len=%u\n",

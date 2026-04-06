@@ -6,33 +6,33 @@
 #endif
 
 BEGIN {
-	printf("esc ioctl subscribe/mode workflow\n");
+	printf("oes ioctl subscribe/mode workflow\n");
 }
 
-fbt::esc_ioctl_subscribe:entry
+fbt::oes_ioctl_subscribe:entry
 {
 	subscribe++;
 	self->sub = 1;
 }
 
-fbt::esc_client_subscribe_events:entry
+fbt::oes_client_subscribe_events:entry
 /self->sub/
 {
 	subscribe_events++;
 }
 
-fbt::esc_ioctl_subscribe:return
+fbt::oes_ioctl_subscribe:return
 /self->sub/
 {
 	self->sub = 0;
 }
 
-fbt::esc_ioctl_set_mode:entry
+fbt::oes_ioctl_set_mode:entry
 {
 	set_mode++;
 }
 
-fbt::esc_client_set_mode:entry
+fbt::oes_client_set_mode:entry
 {
 	client_set_mode++;
 }

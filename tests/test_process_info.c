@@ -1,5 +1,5 @@
 /*
- * ESC process info test.
+ * OES process info test.
  *
  * Tests that process events contain correct:
  * - ABI information (FreeBSD vs Linux binary detection)
@@ -17,12 +17,12 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 static int
-read_fork_event(int fd, esc_message_t *out_msg)
+read_fork_event(int fd, oes_message_t *out_msg)
 {
-	esc_message_t msg;
+	oes_message_t msg;
 	ssize_t n;
 	struct pollfd pfd;
 	struct timespec start;
@@ -44,7 +44,7 @@ read_fork_event(int fd, esc_message_t *out_msg)
 		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
 			n = read(fd, &msg, sizeof(msg));
 			if (n == sizeof(msg) &&
-			    msg.em_event == ESC_EVENT_NOTIFY_FORK) {
+			    msg.em_event == OES_EVENT_NOTIFY_FORK) {
 				*out_msg = msg;
 				return (0);
 			}
@@ -57,12 +57,12 @@ int
 main(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	esc_event_type_t events[] = {
-		ESC_EVENT_NOTIFY_FORK,
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	oes_event_type_t events[] = {
+		OES_EVENT_NOTIFY_FORK,
 	};
-	esc_message_t msg;
+	oes_message_t msg;
 	pid_t child, mypid;
 	int status;
 	int errors = 0;
@@ -75,16 +75,16 @@ main(void)
 	/* Our comm name is test_process_info (truncated) */
 	strlcpy(my_comm, "test_process_in", sizeof(my_comm));
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -92,19 +92,19 @@ main(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = sizeof(events) / sizeof(events[0]);
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
 
 	/*
 	 * Clear the default self-mute so we can see our own fork events.
-	 * (security.esc.default_self_mute=1 would otherwise block them.)
+	 * (security.oes.default_self_mute=1 would otherwise block them.)
 	 */
-	if (ioctl(fd, ESC_IOC_UNMUTE_ALL_PROCESSES, NULL) < 0) {
-		perror("ESC_IOC_UNMUTE_ALL_PROCESSES");
+	if (ioctl(fd, OES_IOC_UNMUTE_ALL_PROCESSES, NULL) < 0) {
+		perror("OES_IOC_UNMUTE_ALL_PROCESSES");
 		close(fd);
 		return (1);
 	}
@@ -133,7 +133,7 @@ main(void)
 	close(fd);
 
 	/* Verify child info from fork event */
-	esc_process_t *proc = &msg.em_event_data.fork.child;
+	oes_process_t *proc = &msg.em_event_data.fork.child;
 
 	printf("  Child PID: %d (expected around %d)\n", proc->ep_pid, child);
 	printf("  Parent PID: %d (expected %d)\n", proc->ep_ppid, mypid);

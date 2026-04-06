@@ -6,35 +6,35 @@
 #endif
 
 BEGIN {
-	printf("esc auth dispatch workflow\n");
+	printf("oes auth dispatch workflow\n");
 }
 
-fbt::esc_generate_vnode_event:entry
+fbt::oes_generate_vnode_event:entry
 /((arg0 & 0x1000) == 0)/
 {
 	auth_gen++;
 	self->auth = 1;
 }
 
-fbt::esc_pending_alloc:entry
+fbt::oes_pending_alloc:entry
 /self->auth/
 {
 	pending++;
 }
 
-fbt::esc_dispatch_event:entry
+fbt::oes_dispatch_event:entry
 /self->auth/
 {
 	dispatch++;
 }
 
-fbt::esc_event_enqueue:entry
+fbt::oes_event_enqueue:entry
 /self->auth/
 {
 	enqueue++;
 }
 
-fbt::esc_generate_vnode_event:return
+fbt::oes_generate_vnode_event:return
 /self->auth/
 {
 	self->auth = 0;

@@ -1,7 +1,7 @@
 /*
- * ESC mute inversion (allowlist mode) tests.
+ * OES mute inversion (allowlist mode) tests.
  *
- * Tests ESC_MUTE_INVERT flag for allowlist-based filtering.
+ * Tests OES_MUTE_INVERT flag for allowlist-based filtering.
  */
 #include <sys/ioctl.h>
 #include <sys/poll.h>
@@ -15,7 +15,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <security/esc/esc.h>
+#include <security/oes/oes.h>
 
 static int
 count_events(int fd, pid_t target_pid, int timeout_ms)
@@ -31,7 +31,7 @@ count_events(int fd, pid_t target_pid, int timeout_ms)
 	while (1) {
 		struct timespec now;
 		long elapsed_ms;
-		esc_message_t msg;
+		oes_message_t msg;
 		ssize_t n;
 
 		clock_gettime(CLOCK_MONOTONIC, &now);
@@ -61,26 +61,26 @@ static int
 test_path_mute_inversion(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	struct esc_mute_path_args mute_path;
-	struct esc_mute_invert_args invert;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_OPEN };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	struct oes_mute_path_args mute_path;
+	struct oes_mute_invert_args invert;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_OPEN };
 	pid_t pid;
 	int events_before, events_after;
 
 	printf("  Testing path mute inversion (allowlist mode)...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -88,9 +88,9 @@ test_path_mute_inversion(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
@@ -99,18 +99,18 @@ test_path_mute_inversion(void)
 	/* Mute /tmp - opens to /tmp should be silenced */
 	memset(&mute_path, 0, sizeof(mute_path));
 	strlcpy(mute_path.emp_path, "/tmp", sizeof(mute_path.emp_path));
-	mute_path.emp_type = ESC_MUTE_PATH_PREFIX;
-	if (ioctl(fd, ESC_IOC_MUTE_PATH, &mute_path) < 0) {
-		perror("ESC_IOC_MUTE_PATH");
+	mute_path.emp_type = OES_MUTE_PATH_PREFIX;
+	if (ioctl(fd, OES_IOC_MUTE_PATH, &mute_path) < 0) {
+		perror("OES_IOC_MUTE_PATH");
 		close(fd);
 		return (1);
 	}
 
 	pid = fork();
 	if (pid == 0) {
-		int tmpfd = open("/tmp/esc_test_invert", O_CREAT | O_RDWR, 0644);
+		int tmpfd = open("/tmp/oes_test_invert", O_CREAT | O_RDWR, 0644);
 		if (tmpfd >= 0) close(tmpfd);
-		unlink("/tmp/esc_test_invert");
+		unlink("/tmp/oes_test_invert");
 		_exit(0);
 	}
 	waitpid(pid, NULL, 0);
@@ -118,9 +118,9 @@ test_path_mute_inversion(void)
 
 	/* Now enable inversion - /tmp becomes allowlist (only /tmp events pass) */
 	memset(&invert, 0, sizeof(invert));
-	invert.emi_type = ESC_MUTE_INVERT_PATH;
+	invert.emi_type = OES_MUTE_INVERT_PATH;
 	invert.emi_invert = 1;
-	if (ioctl(fd, ESC_IOC_SET_MUTE_INVERT, &invert) < 0) {
+	if (ioctl(fd, OES_IOC_SET_MUTE_INVERT, &invert) < 0) {
 		/* May not be implemented */
 		if (errno == ENOTTY || errno == EINVAL) {
 			printf("    INFO: mute inversion not implemented\n");
@@ -128,16 +128,16 @@ test_path_mute_inversion(void)
 			printf("    PASS: mute inversion test completed\n");
 			return (0);
 		}
-		perror("ESC_IOC_SET_MUTE_INVERT");
+		perror("OES_IOC_SET_MUTE_INVERT");
 		close(fd);
 		return (1);
 	}
 
 	pid = fork();
 	if (pid == 0) {
-		int tmpfd = open("/tmp/esc_test_invert2", O_CREAT | O_RDWR, 0644);
+		int tmpfd = open("/tmp/oes_test_invert2", O_CREAT | O_RDWR, 0644);
 		if (tmpfd >= 0) close(tmpfd);
-		unlink("/tmp/esc_test_invert2");
+		unlink("/tmp/oes_test_invert2");
 		_exit(0);
 	}
 	waitpid(pid, NULL, 0);
@@ -155,24 +155,24 @@ static int
 test_process_mute_inversion(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_subscribe_args sub;
-	struct esc_mute_args mute;
-	struct esc_mute_invert_args invert;
-	esc_event_type_t events[] = { ESC_EVENT_NOTIFY_EXEC };
+	struct oes_mode_args mode;
+	struct oes_subscribe_args sub;
+	struct oes_mute_args mute;
+	struct oes_mute_invert_args invert;
+	oes_event_type_t events[] = { OES_EVENT_NOTIFY_EXEC };
 
 	printf("  Testing process mute inversion...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
@@ -180,31 +180,31 @@ test_process_mute_inversion(void)
 	memset(&sub, 0, sizeof(sub));
 	sub.esa_events = events;
 	sub.esa_count = 1;
-	sub.esa_flags = ESC_SUB_REPLACE;
-	if (ioctl(fd, ESC_IOC_SUBSCRIBE, &sub) < 0) {
-		perror("ESC_IOC_SUBSCRIBE");
+	sub.esa_flags = OES_SUB_REPLACE;
+	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) < 0) {
+		perror("OES_IOC_SUBSCRIBE");
 		close(fd);
 		return (1);
 	}
 
 	/* Self-mute */
 	memset(&mute, 0, sizeof(mute));
-	mute.emu_flags = ESC_MUTE_SELF;
-	if (ioctl(fd, ESC_IOC_MUTE_PROCESS, &mute) < 0) {
-		perror("ESC_IOC_MUTE_PROCESS");
+	mute.emu_flags = OES_MUTE_SELF;
+	if (ioctl(fd, OES_IOC_MUTE_PROCESS, &mute) < 0) {
+		perror("OES_IOC_MUTE_PROCESS");
 		close(fd);
 		return (1);
 	}
 
 	/* Try to invert process muting */
 	memset(&invert, 0, sizeof(invert));
-	invert.emi_type = ESC_MUTE_INVERT_PROCESS;
+	invert.emi_type = OES_MUTE_INVERT_PROCESS;
 	invert.emi_invert = 1;
-	if (ioctl(fd, ESC_IOC_SET_MUTE_INVERT, &invert) < 0) {
+	if (ioctl(fd, OES_IOC_SET_MUTE_INVERT, &invert) < 0) {
 		if (errno == ENOTTY || errno == EINVAL) {
 			printf("    INFO: process mute inversion not implemented\n");
 		} else {
-			perror("ESC_IOC_SET_MUTE_INVERT");
+			perror("OES_IOC_SET_MUTE_INVERT");
 		}
 	} else {
 		printf("    INFO: process mute inversion enabled\n");
@@ -216,43 +216,43 @@ test_process_mute_inversion(void)
 }
 
 /*
- * Test ESC_IOC_GET_MUTE_INVERT to query inversion state.
+ * Test OES_IOC_GET_MUTE_INVERT to query inversion state.
  */
 static int
 test_get_mute_invert(void)
 {
 	int fd;
-	struct esc_mode_args mode;
-	struct esc_mute_invert_args invert;
-	struct esc_mute_invert_args retrieved;
+	struct oes_mode_args mode;
+	struct oes_mute_invert_args invert;
+	struct oes_mute_invert_args retrieved;
 
-	printf("  Testing ESC_IOC_GET_MUTE_INVERT...\n");
+	printf("  Testing OES_IOC_GET_MUTE_INVERT...\n");
 
-	fd = open("/dev/esc", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
 	if (fd < 0) {
-		perror("open /dev/esc");
+		perror("open /dev/oes");
 		return (1);
 	}
 
 	memset(&mode, 0, sizeof(mode));
-	mode.ema_mode = ESC_MODE_NOTIFY;
-	if (ioctl(fd, ESC_IOC_SET_MODE, &mode) < 0) {
-		perror("ESC_IOC_SET_MODE");
+	mode.ema_mode = OES_MODE_NOTIFY;
+	if (ioctl(fd, OES_IOC_SET_MODE, &mode) < 0) {
+		perror("OES_IOC_SET_MODE");
 		close(fd);
 		return (1);
 	}
 
 	/* Test GET for process inversion (should be 0 initially) */
 	memset(&retrieved, 0, sizeof(retrieved));
-	retrieved.emi_type = ESC_MUTE_INVERT_PROCESS;
-	if (ioctl(fd, ESC_IOC_GET_MUTE_INVERT, &retrieved) < 0) {
+	retrieved.emi_type = OES_MUTE_INVERT_PROCESS;
+	if (ioctl(fd, OES_IOC_GET_MUTE_INVERT, &retrieved) < 0) {
 		if (errno == ENOTTY || errno == EINVAL) {
 			printf("    INFO: GET_MUTE_INVERT not implemented\n");
 			close(fd);
 			printf("    PASS: GET_MUTE_INVERT tested\n");
 			return (0);
 		}
-		perror("ESC_IOC_GET_MUTE_INVERT (process)");
+		perror("OES_IOC_GET_MUTE_INVERT (process)");
 		close(fd);
 		return (1);
 	}
@@ -261,17 +261,17 @@ test_get_mute_invert(void)
 
 	/* Set process inversion to 1 */
 	memset(&invert, 0, sizeof(invert));
-	invert.emi_type = ESC_MUTE_INVERT_PROCESS;
+	invert.emi_type = OES_MUTE_INVERT_PROCESS;
 	invert.emi_invert = 1;
-	if (ioctl(fd, ESC_IOC_SET_MUTE_INVERT, &invert) < 0) {
+	if (ioctl(fd, OES_IOC_SET_MUTE_INVERT, &invert) < 0) {
 		printf("    INFO: SET_MUTE_INVERT failed: %s\n", strerror(errno));
 	}
 
 	/* Verify it was set */
 	memset(&retrieved, 0, sizeof(retrieved));
-	retrieved.emi_type = ESC_MUTE_INVERT_PROCESS;
-	if (ioctl(fd, ESC_IOC_GET_MUTE_INVERT, &retrieved) < 0) {
-		perror("ESC_IOC_GET_MUTE_INVERT (verify)");
+	retrieved.emi_type = OES_MUTE_INVERT_PROCESS;
+	if (ioctl(fd, OES_IOC_GET_MUTE_INVERT, &retrieved) < 0) {
+		perror("OES_IOC_GET_MUTE_INVERT (verify)");
 		close(fd);
 		return (1);
 	}
@@ -280,8 +280,8 @@ test_get_mute_invert(void)
 
 	/* Test GET for path inversion */
 	memset(&retrieved, 0, sizeof(retrieved));
-	retrieved.emi_type = ESC_MUTE_INVERT_PATH;
-	if (ioctl(fd, ESC_IOC_GET_MUTE_INVERT, &retrieved) < 0) {
+	retrieved.emi_type = OES_MUTE_INVERT_PATH;
+	if (ioctl(fd, OES_IOC_GET_MUTE_INVERT, &retrieved) < 0) {
 		printf("    INFO: GET path inversion: %s\n", strerror(errno));
 	} else {
 		printf("    INFO: path inversion state = %u\n",
@@ -290,8 +290,8 @@ test_get_mute_invert(void)
 
 	/* Test GET for target path inversion */
 	memset(&retrieved, 0, sizeof(retrieved));
-	retrieved.emi_type = ESC_MUTE_INVERT_TARGET_PATH;
-	if (ioctl(fd, ESC_IOC_GET_MUTE_INVERT, &retrieved) < 0) {
+	retrieved.emi_type = OES_MUTE_INVERT_TARGET_PATH;
+	if (ioctl(fd, OES_IOC_GET_MUTE_INVERT, &retrieved) < 0) {
 		printf("    INFO: GET target path inversion: %s\n", strerror(errno));
 	} else {
 		printf("    INFO: target path inversion state = %u\n",
