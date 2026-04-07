@@ -50,7 +50,7 @@ static int is_root = 0;
 static int oes_fd = -1;
 
 static int
-open_esc(void)
+open_oes(void)
 {
 	if (oes_fd >= 0)
 		return (0);
@@ -63,7 +63,7 @@ open_esc(void)
 }
 
 static void
-close_esc(void)
+close_oes(void)
 {
 	if (oes_fd >= 0) {
 		close(oes_fd);
@@ -78,7 +78,7 @@ setup_notify(oes_event_type_t *events, size_t nevents)
 	struct oes_subscribe_args sargs;
 	struct oes_mute_args mute;
 
-	if (open_esc() < 0)
+	if (open_oes() < 0)
 		return (-1);
 
 	memset(&margs, 0, sizeof(margs));
@@ -155,7 +155,7 @@ test_event(const char *name, oes_event_type_t event, void (*action)(void))
 	pid_t pid;
 	int status;
 
-	close_esc();
+	close_oes();
 	if (setup_notify(&event, 1) < 0) {
 		FAIL(name, "setup failed");
 		return (-1);
@@ -172,7 +172,7 @@ test_event(const char *name, oes_event_type_t event, void (*action)(void))
 	usleep(50000);
 	int seen = wait_for_event(event, pid, 1000);
 	waitpid(pid, &status, 0);
-	close_esc();
+	close_oes();
 
 	if (seen) {
 		PASS(name);
@@ -536,7 +536,7 @@ test_extattr_events(void)
 	printf("\n=== EXTATTR EVENTS ===\n");
 
 	/* UFS required for extattr */
-	close_esc();
+	close_oes();
 	oes_event_type_t events[] = {
 		OES_EVENT_NOTIFY_SETEXTATTR,
 		OES_EVENT_NOTIFY_GETEXTATTR,
@@ -563,7 +563,7 @@ test_extattr_events(void)
 
 	int status;
 	waitpid(pid, &status, 0);
-	close_esc();
+	close_oes();
 
 	if (set_seen) PASS("NOTIFY_SETEXTATTR"); else SKIP("NOTIFY_SETEXTATTR", "UFS required");
 	if (get_seen) PASS("NOTIFY_GETEXTATTR"); else SKIP("NOTIFY_GETEXTATTR", "UFS required");
@@ -597,7 +597,7 @@ test_process_events(void)
 	test_event("NOTIFY_PROC_SCHED", OES_EVENT_NOTIFY_PROC_SCHED, action_proc_sched);
 
 	/* PTRACE may require privileges */
-	close_esc();
+	close_oes();
 	oes_event_type_t event = OES_EVENT_NOTIFY_PTRACE;
 	if (setup_notify(&event, 1) < 0) {
 		SKIP("NOTIFY_PTRACE", "setup failed");
@@ -613,7 +613,7 @@ test_process_events(void)
 	int seen = wait_for_event(OES_EVENT_NOTIFY_PTRACE, pid, 1000);
 	int status;
 	waitpid(pid, &status, 0);
-	close_esc();
+	close_oes();
 	if (seen) PASS("NOTIFY_PTRACE"); else SKIP("NOTIFY_PTRACE", "may need privileges");
 }
 
@@ -649,7 +649,7 @@ test_priv_events(void)
 	}
 
 	/* Root operations that trigger priv_check */
-	close_esc();
+	close_oes();
 	oes_event_type_t event = OES_EVENT_NOTIFY_PRIV_CHECK;
 	if (setup_notify(&event, 1) < 0) {
 		SKIP("NOTIFY_PRIV_CHECK", "setup failed");
@@ -669,7 +669,7 @@ test_priv_events(void)
 	int seen = wait_for_event(OES_EVENT_NOTIFY_PRIV_CHECK, pid, 1000);
 	int status;
 	waitpid(pid, &status, 0);
-	close_esc();
+	close_oes();
 
 	if (seen) PASS("NOTIFY_PRIV_CHECK"); else SKIP("NOTIFY_PRIV_CHECK", "event not triggered");
 }
@@ -731,8 +731,8 @@ test_auth_denial(void)
 
 	printf("\n=== AUTH DENIAL ===\n");
 
-	close_esc();
-	if (open_esc() < 0) {
+	close_oes();
+	if (open_oes() < 0) {
 		FAIL("AUTH_LINK denial", "setup failed");
 		return;
 	}
@@ -742,7 +742,7 @@ test_auth_denial(void)
 	margs.ema_timeout_ms = 500;
 	if (ioctl(oes_fd, OES_IOC_SET_MODE, &margs) < 0) {
 		FAIL("AUTH_LINK denial", "set mode failed");
-		close_esc();
+		close_oes();
 		return;
 	}
 
@@ -752,7 +752,7 @@ test_auth_denial(void)
 	sargs.esa_flags = OES_SUB_REPLACE;
 	if (ioctl(oes_fd, OES_IOC_SUBSCRIBE, &sargs) < 0) {
 		FAIL("AUTH_LINK denial", "subscribe failed");
-		close_esc();
+		close_oes();
 		return;
 	}
 
@@ -783,7 +783,7 @@ test_auth_denial(void)
 	}
 
 	waitpid(pid, &status, 0);
-	close_esc();
+	close_oes();
 
 	if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
 		PASS("AUTH_LINK denial blocked operation");

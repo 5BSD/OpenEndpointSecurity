@@ -879,7 +879,7 @@ int vendor_main(int oes_fd) {  /* fd passed from system daemon */
 - [ ] Capsicum rights checking
 
 ### Phase 2: MAC Integration
-- [ ] MAC policy module (`mac_esc.c`)
+- [ ] MAC policy module (`mac_oes.c`)
 - [ ] Hook sleepable VFS operations (exec, open, create, unlink)
 - [ ] AUTH event blocking with timeout
 - [ ] NOTIFY event generation

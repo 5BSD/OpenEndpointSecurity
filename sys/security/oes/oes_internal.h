@@ -496,7 +496,7 @@ void	oes_fill_file(oes_file_t *ef, struct vnode *vp, struct ucred *cred);
 /*
  * Sysctl variables
  */
-SYSCTL_DECL(_security_esc);
+SYSCTL_DECL(_security_oes);
 
 extern int oes_debug;
 extern int oes_default_timeout;
