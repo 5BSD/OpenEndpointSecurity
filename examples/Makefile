@@ -7,7 +7,7 @@ SRCS_vendor_client= vendor_client.c
 CFLAGS+=	-I${.CURDIR}/../lib/liboes
 CFLAGS+=	-I${.CURDIR}/../sys
 
-LDADD+=		-L${.CURDIR}/../lib/liboes -lesc
+LDADD+=		-L${.CURDIR}/../lib/liboes -loes
 LDFLAGS+=	-Wl,-rpath,${.CURDIR}/../lib/liboes
 
 WARNS?=		6
