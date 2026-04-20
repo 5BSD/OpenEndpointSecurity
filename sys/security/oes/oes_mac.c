@@ -127,6 +127,9 @@ oes_mac_cred_init_label(struct label *label)
 {
 	struct oes_cred_label *ecl;
 
+	if (label == NULL)
+		return;
+
 	if (!oes_mac_registered) {
 		SLOT_SET(label, NULL);
 		return;
@@ -144,6 +147,9 @@ oes_mac_cred_destroy_label(struct label *label)
 {
 	struct oes_cred_label *ecl;
 
+	if (label == NULL)
+		return;
+
 	ecl = SLOT(label);
 	if (ecl != NULL) {
 		free(ecl, M_OES);
@@ -156,6 +162,9 @@ static void
 oes_mac_cred_copy_label(struct label *src, struct label *dst)
 {
 	struct oes_cred_label *src_ecl, *dst_ecl;
+
+	if (src == NULL || dst == NULL)
+		return;
 
 	src_ecl = SLOT(src);
 	dst_ecl = SLOT(dst);
