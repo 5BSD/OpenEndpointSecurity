@@ -305,9 +305,13 @@ oes_pending_alloc(oes_event_type_t event, struct proc *p)
 	nanouptime(&ep->ep_msg.em_time);
 
 	if (p != NULL) {
-		PROC_LOCK(p);
+		bool owned = mtx_owned(&p->p_mtx);
+
+		if (!owned)
+			PROC_LOCK(p);
 		oes_fill_process(&ep->ep_msg.em_process, p, NULL);
-		PROC_UNLOCK(p);
+		if (!owned)
+			PROC_UNLOCK(p);
 	}
 
 	return (ep);

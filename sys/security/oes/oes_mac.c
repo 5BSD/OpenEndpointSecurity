@@ -1209,9 +1209,16 @@ oes_proc_event_fork(void *arg __unused, struct proc *p1,
 	if (ep == NULL)
 		return;
 
-	PROC_LOCK(p2);
-	oes_fill_process(&ep->ep_msg.em_event_data.fork.child, p2, p2->p_ucred);
-	PROC_UNLOCK(p2);
+	{
+		bool owned = mtx_owned(&p2->p_mtx);
+
+		if (!owned)
+			PROC_LOCK(p2);
+		oes_fill_process(&ep->ep_msg.em_event_data.fork.child,
+		    p2, p2->p_ucred);
+		if (!owned)
+			PROC_UNLOCK(p2);
+	}
 
 	oes_deliver_notify_nosleep(ep, p1);
 	oes_pending_rele(ep);
@@ -1706,10 +1713,14 @@ oes_fill_event_signal(struct oes_pending *ep, struct proc *target_proc,
 {
 
 	if (target_proc != NULL) {
-		PROC_LOCK(target_proc);
+		bool owned = mtx_owned(&target_proc->p_mtx);
+
+		if (!owned)
+			PROC_LOCK(target_proc);
 		oes_fill_process(&ep->ep_msg.em_event_data.signal.target,
 		    target_proc, NULL);
-		PROC_UNLOCK(target_proc);
+		if (!owned)
+			PROC_UNLOCK(target_proc);
 	}
 	ep->ep_msg.em_event_data.signal.signum = signum;
 }
@@ -1914,11 +1925,15 @@ oes_generate_vnode_event(oes_event_type_t event,
 		case OES_EVENT_AUTH_PTRACE:
 		case OES_EVENT_NOTIFY_PTRACE:
 			if (target_proc != NULL) {
-				PROC_LOCK(target_proc);
+				bool tp_owned = mtx_owned(&target_proc->p_mtx);
+
+				if (!tp_owned)
+					PROC_LOCK(target_proc);
 				oes_fill_process(
 				    &ep->ep_msg.em_event_data.ptrace.target,
 				    target_proc, NULL);
-				PROC_UNLOCK(target_proc);
+				if (!tp_owned)
+					PROC_UNLOCK(target_proc);
 			}
 			break;
 		case OES_EVENT_NOTIFY_SETUID:
@@ -2016,11 +2031,16 @@ oes_generate_vnode_event(oes_event_type_t event,
 					    info->target_proc->p_comm,
 					    sizeof(tp->ep_comm));
 				} else {
-					PROC_LOCK(info->target_proc);
+					bool tp_owned =
+					    mtx_owned(&info->target_proc->p_mtx);
+
+					if (!tp_owned)
+						PROC_LOCK(info->target_proc);
 					oes_fill_process(
 					    &ep->ep_msg.em_event_data.proc_sched.target,
 					    info->target_proc, NULL);
-					PROC_UNLOCK(info->target_proc);
+					if (!tp_owned)
+						PROC_UNLOCK(info->target_proc);
 				}
 			}
 			break;
@@ -2731,9 +2751,15 @@ oes_mac_proc_check_signal(struct ucred *cred, struct proc *p, int signum)
 	if (ep == NULL)
 		return (0);
 
-	PROC_LOCK(p);
-	oes_fill_process(&ep->ep_msg.em_event_data.signal.target, p, NULL);
-	PROC_UNLOCK(p);
+	{
+		bool owned = mtx_owned(&p->p_mtx);
+
+		if (!owned)
+			PROC_LOCK(p);
+		oes_fill_process(&ep->ep_msg.em_event_data.signal.target, p, NULL);
+		if (!owned)
+			PROC_UNLOCK(p);
+	}
 	ep->ep_msg.em_event_data.signal.signum = signum;
 
 	oes_deliver_notify_nosleep(ep, curp);

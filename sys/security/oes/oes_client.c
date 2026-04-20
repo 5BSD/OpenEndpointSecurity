@@ -568,13 +568,20 @@ oes_client_is_muted(struct oes_client *ec, struct proc *p, oes_event_type_t even
 		return (false);
 
 	/* Acquire PROC_LOCK to safely read p_stats for genid */
-	PROC_LOCK(p);
-	if ((p->p_flag & P_WEXIT) != 0) {
-		PROC_UNLOCK(p);
-		return (false);
+	{
+		bool owned = mtx_owned(&p->p_mtx);
+
+		if (!owned)
+			PROC_LOCK(p);
+		if ((p->p_flag & P_WEXIT) != 0) {
+			if (!owned)
+				PROC_UNLOCK(p);
+			return (false);
+		}
+		genid = oes_proc_genid(p);
+		if (!owned)
+			PROC_UNLOCK(p);
 	}
-	genid = oes_proc_genid(p);
-	PROC_UNLOCK(p);
 
 	/*
 	 * Check self-mute.  Self-mute is treated as just another entry
