@@ -84,61 +84,33 @@ deploy_ssh() {
         exit 1
     fi
 
-    # Create deployment directory structure on VM
-    ssh "root@${VM_IP}" "mkdir -p ${VM_DEST}/sys/security/oes \
-        ${VM_DEST}/lib/liboes \
-        ${VM_DEST}/examples \
-        ${VM_DEST}/tests"
+    # Single tar pipe to avoid per-file SSH handshakes
+    echo "  Copying all artifacts via tar..."
+    tar cf - \
+        sys/security/oes/oes.ko \
+        sys/security/oes/oes.h \
+        sys/security/oes/oes_internal.h \
+        lib/liboes/liboes.so.1 \
+        lib/liboes/liboes.a \
+        lib/liboes/liboes.h \
+        examples/oesd \
+        examples/vendor_client \
+        examples/oeslogger \
+        tests/Makefile \
+        tests/test_* \
+        run_tests.sh \
+        test_oes.c \
+        2>/dev/null | \
+        ssh "root@${VM_IP}" "mkdir -p ${VM_DEST} && cd ${VM_DEST} && tar xf -"
 
-    # Kernel module
-    echo "  Copying kernel module..."
-    scp sys/security/oes/oes.ko "root@${VM_IP}:${VM_DEST}/sys/security/oes/"
-
-    # Userland library
-    echo "  Copying liboes..."
-    scp lib/liboes/liboes.so.1 lib/liboes/liboes.a lib/liboes/liboes.h \
-        "root@${VM_IP}:${VM_DEST}/lib/liboes/"
-    # Install shared lib so examples/tests can link
-    ssh "root@${VM_IP}" "cp ${VM_DEST}/lib/liboes/liboes.so.1 /usr/local/lib/ && \
+    # Install shared lib and headers on VM
+    echo "  Installing liboes and headers..."
+    ssh "root@${VM_IP}" "\
+        cp ${VM_DEST}/lib/liboes/liboes.so.1 /usr/local/lib/ && \
         ln -sf liboes.so.1 /usr/local/lib/liboes.so && \
-        ldconfig"
-
-    # Header (needed at runtime for /dev/oes ioctl structs)
-    ssh "root@${VM_IP}" "mkdir -p /usr/local/include/security/oes"
-    scp sys/security/oes/oes.h \
-        "root@${VM_IP}:/usr/local/include/security/oes/"
-
-    # Examples
-    echo "  Copying examples..."
-    for bin in oesd vendor_client oeslogger; do
-        if [ -f "examples/${bin}" ]; then
-            scp "examples/${bin}" "root@${VM_IP}:${VM_DEST}/examples/"
-            echo "    ${bin}"
-        fi
-    done
-
-    # Tests (all compiled binaries + shell scripts)
-    echo "  Copying tests..."
-    for t in tests/test_*; do
-        [ -x "$t" ] || continue
-        scp "$t" "root@${VM_IP}:${VM_DEST}/tests/"
-    done
-    # Also copy the shell-based tests
-    for t in tests/test_*.sh; do
-        [ -f "$t" ] || continue
-        scp "$t" "root@${VM_IP}:${VM_DEST}/tests/"
-    done
-
-    # Copy run_tests.sh and test_oes.c (build on VM)
-    scp run_tests.sh "root@${VM_IP}:${VM_DEST}/"
-    if [ -f test_oes.c ]; then
-        scp test_oes.c "root@${VM_IP}:${VM_DEST}/"
-    fi
-
-    # Copy the sys include tree for on-VM compilation
-    ssh "root@${VM_IP}" "mkdir -p ${VM_DEST}/sys/security/oes"
-    scp sys/security/oes/oes.h sys/security/oes/oes_internal.h \
-        "root@${VM_IP}:${VM_DEST}/sys/security/oes/" 2>/dev/null || true
+        ldconfig && \
+        mkdir -p /usr/local/include/security/oes && \
+        cp ${VM_DEST}/sys/security/oes/oes.h /usr/local/include/security/oes/"
 
     printf "${GREEN}=== Deploy complete ===${NC}\n"
     echo ""

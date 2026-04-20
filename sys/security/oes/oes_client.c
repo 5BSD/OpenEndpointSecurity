@@ -815,7 +815,11 @@ oes_client_mute(struct oes_client *ec, oes_proc_token_t *token, uint32_t flags)
 		    &ec->ec_muted[oes_mute_proc_bucket(ec->ec_owner_pid)],
 		    em_link) {
 			if (em->em_pid == ec->ec_owner_pid) {
-				/* Already in list, just ensure flag is set */
+				/*
+				 * Already in list. Upgrade per-event mute
+				 * to mute-all by clearing the event bitmap.
+				 */
+				memset(em->em_events, 0, sizeof(em->em_events));
 				ec->ec_flags |= EC_FLAG_MUTED_SELF;
 				EC_UNLOCK(ec);
 				return (0);
