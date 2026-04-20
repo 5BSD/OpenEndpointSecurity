@@ -294,6 +294,116 @@ main(void)
 	(void)write(pipefd[1], &cmd, 1);
 	(void)waitpid(child, &status, 0);
 	close(pipefd[1]);
+
+	/*
+	 * Test mute-all upgrade: per-event mute followed by full mute
+	 * should upgrade to mute-all (em_events cleared to zeros).
+	 */
+	printf("  Testing mute-all upgrades per-event mute...\n");
+
+	/* Clear all mutes first */
+	if (ioctl(fd, OES_IOC_UNMUTE_ALL_PROCESSES, NULL) < 0) {
+		perror("OES_IOC_UNMUTE_ALL_PROCESSES");
+		close(fd);
+		return (1);
+	}
+
+	/* Step 1: Per-event mute self for OPEN only */
+	memset(&mute_proc, 0, sizeof(mute_proc));
+	mute_proc.empe_flags = OES_MUTE_SELF;
+	mute_proc.empe_count = 1;
+	mute_proc.empe_events[0] = OES_EVENT_NOTIFY_OPEN;
+	if (ioctl(fd, OES_IOC_MUTE_PROCESS_EVENTS, &mute_proc) < 0) {
+		perror("OES_IOC_MUTE_PROCESS_EVENTS (per-event)");
+		close(fd);
+		return (1);
+	}
+
+	/* Verify per-event mute: event_count should be 1 */
+	{
+		struct oes_get_muted_processes_args get_procs;
+		struct oes_muted_process_entry proc_entries[4];
+		size_t i;
+		int found = 0;
+
+		memset(&get_procs, 0, sizeof(get_procs));
+		get_procs.egmp_entries = proc_entries;
+		get_procs.egmp_count = 4;
+		if (ioctl(fd, OES_IOC_GET_MUTED_PROCESSES, &get_procs) < 0) {
+			perror("OES_IOC_GET_MUTED_PROCESSES");
+			close(fd);
+			return (1);
+		}
+		for (i = 0; i < get_procs.egmp_actual && i < 4; i++) {
+			if (proc_entries[i].emp_token.ept_id == (uint64_t)getpid()) {
+				if (proc_entries[i].emp_event_count != 1) {
+					fprintf(stderr,
+					    "FAIL: expected 1 muted event, got %u\n",
+					    proc_entries[i].emp_event_count);
+					close(fd);
+					return (1);
+				}
+				found = 1;
+				break;
+			}
+		}
+		if (!found) {
+			fprintf(stderr, "FAIL: self not in muted list after per-event mute\n");
+			close(fd);
+			return (1);
+		}
+	}
+	printf("    PASS: per-event mute shows 1 event\n");
+
+	/* Step 2: Full mute-all self (should upgrade) */
+	{
+		struct oes_mute_args mute_all;
+
+		memset(&mute_all, 0, sizeof(mute_all));
+		mute_all.emu_flags = OES_MUTE_SELF;
+		if (ioctl(fd, OES_IOC_MUTE_PROCESS, &mute_all) < 0) {
+			perror("OES_IOC_MUTE_PROCESS (mute-all)");
+			close(fd);
+			return (1);
+		}
+	}
+
+	/* Verify upgrade: event_count should now be 0 (mute-all) */
+	{
+		struct oes_get_muted_processes_args get_procs;
+		struct oes_muted_process_entry proc_entries[4];
+		size_t i;
+		int found = 0;
+
+		memset(&get_procs, 0, sizeof(get_procs));
+		get_procs.egmp_entries = proc_entries;
+		get_procs.egmp_count = 4;
+		if (ioctl(fd, OES_IOC_GET_MUTED_PROCESSES, &get_procs) < 0) {
+			perror("OES_IOC_GET_MUTED_PROCESSES");
+			close(fd);
+			return (1);
+		}
+		for (i = 0; i < get_procs.egmp_actual && i < 4; i++) {
+			if (proc_entries[i].emp_token.ept_id == (uint64_t)getpid()) {
+				if (proc_entries[i].emp_event_count != 0) {
+					fprintf(stderr,
+					    "FAIL: mute-all should upgrade to event_count=0, got %u\n",
+					    proc_entries[i].emp_event_count);
+					close(fd);
+					return (1);
+				}
+				found = 1;
+				break;
+			}
+		}
+		if (!found) {
+			fprintf(stderr, "FAIL: self not in muted list after mute-all\n");
+			close(fd);
+			return (1);
+		}
+	}
+	printf("    PASS: mute-all upgraded per-event mute (event_count=0)\n");
+
 	close(fd);
 
 	printf("per-event muting: ok\n");

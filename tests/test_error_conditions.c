@@ -190,14 +190,18 @@ test_invalid_event_type(void)
 	sub.esa_count = 1;
 	sub.esa_flags = OES_SUB_REPLACE;
 	if (ioctl(fd, OES_IOC_SUBSCRIBE, &sub) == 0) {
-		/* May silently ignore invalid events */
-		printf("    INFO: invalid event type accepted (ignored)\n");
-	} else {
-		printf("    INFO: invalid event type rejected\n");
+		fprintf(stderr, "FAIL: invalid event type 0xFFFF accepted\n");
+		close(fd);
+		return (1);
+	}
+	if (errno != EINVAL) {
+		fprintf(stderr, "FAIL: expected EINVAL, got %s\n", strerror(errno));
+		close(fd);
+		return (1);
 	}
 
 	close(fd);
-	printf("    PASS: invalid event type handled\n");
+	printf("    PASS: invalid event type rejected with EINVAL\n");
 	return (0);
 }
 

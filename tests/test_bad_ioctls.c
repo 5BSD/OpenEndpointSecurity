@@ -337,32 +337,53 @@ test_cache_invalid_data(void)
 		return (1);
 	}
 
-	/* Cache add with all zeros */
+	/* Cache add with all zeros (event=0 is undefined) */
 	memset(&entry, 0, sizeof(entry));
 	ret = ioctl(fd, OES_IOC_CACHE_ADD, &entry);
-	if (ret < 0) {
-		printf("    INFO: zero cache entry: %s\n", strerror(errno));
-	} else {
-		printf("    INFO: zero cache entry accepted\n");
+	if (ret == 0) {
+		fprintf(stderr, "FAIL: zero cache entry accepted\n");
+		close(fd);
+		return (1);
 	}
+	if (errno != EINVAL) {
+		fprintf(stderr, "FAIL: zero cache entry: expected EINVAL, got %s\n",
+		    strerror(errno));
+		close(fd);
+		return (1);
+	}
+	printf("    PASS: zero cache entry rejected (EINVAL)\n");
 
-	/* Cache add with garbage */
+	/* Cache add with garbage (0xFFFF is undefined) */
 	memset(&entry, 0xFF, sizeof(entry));
 	ret = ioctl(fd, OES_IOC_CACHE_ADD, &entry);
-	if (ret < 0) {
-		printf("    INFO: garbage cache entry: %s\n", strerror(errno));
-	} else {
-		printf("    INFO: garbage cache entry accepted\n");
+	if (ret == 0) {
+		fprintf(stderr, "FAIL: garbage cache entry accepted\n");
+		close(fd);
+		return (1);
 	}
+	if (errno != EINVAL) {
+		fprintf(stderr, "FAIL: garbage cache entry: expected EINVAL, got %s\n",
+		    strerror(errno));
+		close(fd);
+		return (1);
+	}
+	printf("    PASS: garbage cache entry rejected (EINVAL)\n");
 
 	/* Cache remove with garbage key */
 	memset(&key, 0xFF, sizeof(key));
 	ret = ioctl(fd, OES_IOC_CACHE_REMOVE, &key);
-	if (ret < 0) {
-		printf("    INFO: garbage cache key removal: %s\n", strerror(errno));
-	} else {
-		printf("    INFO: garbage cache key removal succeeded\n");
+	if (ret == 0) {
+		fprintf(stderr, "FAIL: garbage cache key removal accepted\n");
+		close(fd);
+		return (1);
 	}
+	if (errno != EINVAL) {
+		fprintf(stderr, "FAIL: garbage cache key: expected EINVAL, got %s\n",
+		    strerror(errno));
+		close(fd);
+		return (1);
+	}
+	printf("    PASS: garbage cache key rejected (EINVAL)\n");
 
 	close(fd);
 	printf("    PASS: cache invalid data tested\n");
@@ -401,14 +422,19 @@ test_invalid_event_bitmap(void)
 	mpe.empe_count = 64;  /* Max allowed */
 
 	ret = ioctl(fd, OES_IOC_MUTE_PROCESS_EVENTS, &mpe);
-	if (ret < 0) {
-		printf("    INFO: invalid events array: %s\n", strerror(errno));
-	} else {
-		printf("    INFO: invalid events array accepted\n");
+	if (ret == 0) {
+		fprintf(stderr, "FAIL: invalid events array accepted\n");
+		close(fd);
+		return (1);
 	}
+	if (errno != EINVAL) {
+		fprintf(stderr, "FAIL: expected EINVAL, got %s\n", strerror(errno));
+		close(fd);
+		return (1);
+	}
+	printf("    PASS: invalid events array rejected (EINVAL)\n");
 
 	close(fd);
-	printf("    PASS: invalid event bitmap tested\n");
 	return (0);
 }
 
