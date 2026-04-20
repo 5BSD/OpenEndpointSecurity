@@ -288,6 +288,127 @@ oes_client_unsubscribe_all(struct oes_client *ec)
 	ec->ec_subscriptions[3] = 0;
 }
 
+/*
+ * Validate that an event type is a defined enum value, not just
+ * a value that passes the AUTH/NOTIFY bit test and bit < 128 range.
+ */
+static __inline bool
+oes_event_is_valid(oes_event_type_t ev)
+{
+	if (OES_EVENT_IS_AUTH(ev)) {
+		switch (ev) {
+		case OES_EVENT_AUTH_EXEC:
+		case OES_EVENT_AUTH_OPEN:
+		case OES_EVENT_AUTH_CREATE:
+		case OES_EVENT_AUTH_UNLINK:
+		case OES_EVENT_AUTH_RENAME:
+		case OES_EVENT_AUTH_LINK:
+		case OES_EVENT_AUTH_MOUNT:
+		case OES_EVENT_AUTH_KLDLOAD:
+		case OES_EVENT_AUTH_MMAP:
+		case OES_EVENT_AUTH_MPROTECT:
+		case OES_EVENT_AUTH_CHDIR:
+		case OES_EVENT_AUTH_CHROOT:
+		case OES_EVENT_AUTH_SETEXTATTR:
+		case OES_EVENT_AUTH_PTRACE:
+		case OES_EVENT_AUTH_ACCESS:
+		case OES_EVENT_AUTH_READ:
+		case OES_EVENT_AUTH_WRITE:
+		case OES_EVENT_AUTH_LOOKUP:
+		case OES_EVENT_AUTH_SETMODE:
+		case OES_EVENT_AUTH_SETOWNER:
+		case OES_EVENT_AUTH_SETFLAGS:
+		case OES_EVENT_AUTH_SETUTIMES:
+		case OES_EVENT_AUTH_STAT:
+		case OES_EVENT_AUTH_POLL:
+		case OES_EVENT_AUTH_REVOKE:
+		case OES_EVENT_AUTH_READDIR:
+		case OES_EVENT_AUTH_READLINK:
+		case OES_EVENT_AUTH_GETEXTATTR:
+		case OES_EVENT_AUTH_DELETEEXTATTR:
+		case OES_EVENT_AUTH_LISTEXTATTR:
+		case OES_EVENT_AUTH_GETACL:
+		case OES_EVENT_AUTH_SETACL:
+		case OES_EVENT_AUTH_DELETEACL:
+		case OES_EVENT_AUTH_RELABEL:
+		case OES_EVENT_AUTH_SWAPON:
+		case OES_EVENT_AUTH_SWAPOFF:
+			return (true);
+		default:
+			return (false);
+		}
+	}
+
+	switch (ev) {
+	case OES_EVENT_NOTIFY_EXEC:
+	case OES_EVENT_NOTIFY_EXIT:
+	case OES_EVENT_NOTIFY_FORK:
+	case OES_EVENT_NOTIFY_OPEN:
+	case OES_EVENT_NOTIFY_CREATE:
+	case OES_EVENT_NOTIFY_UNLINK:
+	case OES_EVENT_NOTIFY_RENAME:
+	case OES_EVENT_NOTIFY_MOUNT:
+	case OES_EVENT_NOTIFY_KLDLOAD:
+	case OES_EVENT_NOTIFY_SIGNAL:
+	case OES_EVENT_NOTIFY_PTRACE:
+	case OES_EVENT_NOTIFY_SETUID:
+	case OES_EVENT_NOTIFY_SETGID:
+	case OES_EVENT_NOTIFY_ACCESS:
+	case OES_EVENT_NOTIFY_READ:
+	case OES_EVENT_NOTIFY_WRITE:
+	case OES_EVENT_NOTIFY_LOOKUP:
+	case OES_EVENT_NOTIFY_SETMODE:
+	case OES_EVENT_NOTIFY_SETOWNER:
+	case OES_EVENT_NOTIFY_SETFLAGS:
+	case OES_EVENT_NOTIFY_SETUTIMES:
+	case OES_EVENT_NOTIFY_STAT:
+	case OES_EVENT_NOTIFY_POLL:
+	case OES_EVENT_NOTIFY_REVOKE:
+	case OES_EVENT_NOTIFY_READDIR:
+	case OES_EVENT_NOTIFY_READLINK:
+	case OES_EVENT_NOTIFY_GETEXTATTR:
+	case OES_EVENT_NOTIFY_DELETEEXTATTR:
+	case OES_EVENT_NOTIFY_LISTEXTATTR:
+	case OES_EVENT_NOTIFY_GETACL:
+	case OES_EVENT_NOTIFY_SETACL:
+	case OES_EVENT_NOTIFY_DELETEACL:
+	case OES_EVENT_NOTIFY_RELABEL:
+	case OES_EVENT_NOTIFY_SETEXTATTR:
+	case OES_EVENT_NOTIFY_SOCKET_CONNECT:
+	case OES_EVENT_NOTIFY_SOCKET_BIND:
+	case OES_EVENT_NOTIFY_SOCKET_LISTEN:
+	case OES_EVENT_NOTIFY_REBOOT:
+	case OES_EVENT_NOTIFY_SYSCTL:
+	case OES_EVENT_NOTIFY_KENV:
+	case OES_EVENT_NOTIFY_SWAPON:
+	case OES_EVENT_NOTIFY_SWAPOFF:
+	case OES_EVENT_NOTIFY_UNMOUNT:
+	case OES_EVENT_NOTIFY_KLDUNLOAD:
+	case OES_EVENT_NOTIFY_LINK:
+	case OES_EVENT_NOTIFY_MMAP:
+	case OES_EVENT_NOTIFY_MPROTECT:
+	case OES_EVENT_NOTIFY_CHDIR:
+	case OES_EVENT_NOTIFY_CHROOT:
+	case OES_EVENT_NOTIFY_SOCKET_CREATE:
+	case OES_EVENT_NOTIFY_SOCKET_ACCEPT:
+	case OES_EVENT_NOTIFY_SOCKET_SEND:
+	case OES_EVENT_NOTIFY_SOCKET_RECEIVE:
+	case OES_EVENT_NOTIFY_SOCKET_STAT:
+	case OES_EVENT_NOTIFY_SOCKET_POLL:
+	case OES_EVENT_NOTIFY_PIPE_READ:
+	case OES_EVENT_NOTIFY_PIPE_WRITE:
+	case OES_EVENT_NOTIFY_PIPE_STAT:
+	case OES_EVENT_NOTIFY_PIPE_POLL:
+	case OES_EVENT_NOTIFY_PIPE_IOCTL:
+	case OES_EVENT_NOTIFY_MOUNT_STAT:
+	case OES_EVENT_NOTIFY_PRIV_CHECK:
+	case OES_EVENT_NOTIFY_PROC_SCHED:
+		return (true);
+	default:
+		return (false);
+	}
+}
+
 static const oes_event_type_t oes_auth_notify_map[] = {
 	[OES_EVENT_AUTH_EXEC]		= OES_EVENT_NOTIFY_EXEC,
 	[OES_EVENT_AUTH_OPEN]		= OES_EVENT_NOTIFY_OPEN,
@@ -466,9 +587,9 @@ int	oes_event_respond_flags(struct oes_client *ec, uint64_t msg_id,
 	    oes_auth_result_t result, uint32_t allowed_flags,
 	    uint32_t denied_flags);
 void	oes_event_handle_timeout(struct oes_pending *ep);
-struct oes_pending *oes_pending_clone(const struct oes_pending *src);
+struct oes_pending *oes_pending_clone(const struct oes_pending *src, int mflags);
 
-struct oes_auth_group *oes_auth_group_alloc(void);
+struct oes_auth_group *oes_auth_group_alloc(int mflags);
 void	oes_auth_group_hold(struct oes_auth_group *ag);
 void	oes_auth_group_rele(struct oes_auth_group *ag);
 void	oes_auth_group_add_pending(struct oes_auth_group *ag);

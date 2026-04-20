@@ -228,8 +228,8 @@ oes_client_subscribe_events(struct oes_client *ec, oes_event_type_t *events,
 		oes_event_type_t ev = events[i];
 		int bit = ev & 0x0FFF;
 
-		/* Validate event type */
-		if (!OES_EVENT_IS_AUTH(ev) && !OES_EVENT_IS_NOTIFY(ev)) {
+		/* Validate event type is a defined enum value */
+		if (!oes_event_is_valid(ev)) {
 			EC_UNLOCK(ec);
 			return (EINVAL);
 		}
@@ -863,8 +863,14 @@ oes_client_mute(struct oes_client *ec, oes_proc_token_t *token, uint32_t flags)
 	    em_link) {
 		if (em->em_pid == (pid_t)token->ept_id) {
 			if (em->em_genid == token->ept_genid) {
+				/*
+				 * Same process already muted.  Upgrade
+				 * per-event mute to mute-all by clearing
+				 * the event bitmap (all-zeros = all events).
+				 */
+				memset(em->em_events, 0, sizeof(em->em_events));
 				EC_UNLOCK(ec);
-				return (0);  /* Same process already muted */
+				return (0);
 			}
 			/*
 			 * PID reused by different process - update entry
@@ -962,6 +968,11 @@ oes_client_mute_path(struct oes_client *ec, const char *path, uint32_t type,
 	LIST_FOREACH(emp, list, emp_link) {
 		if (emp->emp_type == type && emp->emp_len == len &&
 		    memcmp(emp->emp_path, path, len) == 0) {
+			/*
+			 * Path already muted.  Upgrade per-event mute
+			 * to mute-all by clearing the event bitmap.
+			 */
+			memset(emp->emp_events, 0, sizeof(emp->emp_events));
 			EC_UNLOCK(ec);
 			return (0);
 		}
@@ -1197,9 +1208,9 @@ oes_events_to_bitmap(const oes_event_type_t *events, size_t count,
 		int bit = ev & 0x0FFF;
 		int base, word, shift;
 
-		/* Validate event is AUTH or NOTIFY */
-		if (!OES_EVENT_IS_AUTH(ev) && !OES_EVENT_IS_NOTIFY(ev)) {
-			OES_WARN("event type 0x%x is neither AUTH nor NOTIFY",
+		/* Validate event is a defined enum value */
+		if (!oes_event_is_valid(ev)) {
+			OES_WARN("event type 0x%x is not a defined event",
 			    ev);
 			valid = false;
 			continue;
@@ -2020,9 +2031,9 @@ oes_fill_process(oes_process_t *ep, struct proc *p, struct ucred *cred_override)
 		ep->ep_rgid = cred->cr_rgid;
 		ep->ep_sgid = cred->cr_svgid;
 
-		/* Supplementary groups */
+		/* Supplementary groups (store real count, copy up to 16) */
+		ep->ep_ngroups = cred->cr_ngroups;
 		ngroups = MIN(cred->cr_ngroups, 16);
-		ep->ep_ngroups = ngroups;
 		for (i = 0; i < ngroups; i++)
 			ep->ep_groups[i] = cred->cr_groups[i];
 

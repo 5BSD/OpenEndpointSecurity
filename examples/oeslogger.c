@@ -60,34 +60,122 @@ sighandler(int sig __unused)
  */
 
 static void
+json_escape_byte(unsigned char c, FILE *fp)
+{
+
+	switch (c) {
+	case '"':  fputs("\\\"", fp); break;
+	case '\\': fputs("\\\\", fp); break;
+	case '\b': fputs("\\b", fp); break;
+	case '\f': fputs("\\f", fp); break;
+	case '\n': fputs("\\n", fp); break;
+	case '\r': fputs("\\r", fp); break;
+	case '\t': fputs("\\t", fp); break;
+	default:
+		if (c < 0x20 || c >= 0x80)
+			fprintf(fp, "\\u%04x", c);
+		else
+			fputc(c, fp);
+		break;
+	}
+}
+
+static size_t
+utf8_sequence_len(const unsigned char *s, size_t remaining)
+{
+	unsigned char c0;
+
+	if (s == NULL || remaining == 0)
+		return (0);
+
+	c0 = s[0];
+	if (c0 <= 0x7f)
+		return (1);
+
+	if (remaining >= 2 && c0 >= 0xc2 && c0 <= 0xdf &&
+	    s[1] >= 0x80 && s[1] <= 0xbf)
+		return (2);
+
+	if (remaining >= 3) {
+		if (c0 == 0xe0 &&
+		    s[1] >= 0xa0 && s[1] <= 0xbf &&
+		    s[2] >= 0x80 && s[2] <= 0xbf)
+			return (3);
+		if ((c0 >= 0xe1 && c0 <= 0xec) || (c0 >= 0xee && c0 <= 0xef)) {
+			if (s[1] >= 0x80 && s[1] <= 0xbf &&
+			    s[2] >= 0x80 && s[2] <= 0xbf)
+				return (3);
+		}
+		if (c0 == 0xed &&
+		    s[1] >= 0x80 && s[1] <= 0x9f &&
+		    s[2] >= 0x80 && s[2] <= 0xbf)
+			return (3);
+	}
+
+	if (remaining >= 4) {
+		if (c0 == 0xf0 &&
+		    s[1] >= 0x90 && s[1] <= 0xbf &&
+		    s[2] >= 0x80 && s[2] <= 0xbf &&
+		    s[3] >= 0x80 && s[3] <= 0xbf)
+			return (4);
+		if (c0 >= 0xf1 && c0 <= 0xf3 &&
+		    s[1] >= 0x80 && s[1] <= 0xbf &&
+		    s[2] >= 0x80 && s[2] <= 0xbf &&
+		    s[3] >= 0x80 && s[3] <= 0xbf)
+			return (4);
+		if (c0 == 0xf4 &&
+		    s[1] >= 0x80 && s[1] <= 0x8f &&
+		    s[2] >= 0x80 && s[2] <= 0xbf &&
+		    s[3] >= 0x80 && s[3] <= 0xbf)
+			return (4);
+	}
+
+	return (0);
+}
+
+static void
+json_escape_bytes(const unsigned char *s, size_t maxlen, bool stop_at_nul,
+    FILE *fp)
+{
+	size_t i;
+
+	if (s == NULL || maxlen == 0 || s[0] == '\0') {
+		fputs("\"\"", fp);
+		return;
+	}
+
+	fputc('"', fp);
+	for (i = 0; i < maxlen; i++) {
+		size_t utf8_len;
+
+		if (stop_at_nul && s[i] == '\0')
+			break;
+
+		utf8_len = utf8_sequence_len(&s[i], maxlen - i);
+		if (utf8_len > 1) {
+			size_t j;
+
+			for (j = 0; j < utf8_len; j++)
+				fputc(s[i + j], fp);
+			i += utf8_len - 1;
+			continue;
+		}
+
+		json_escape_byte(s[i], fp);
+	}
+	fputc('"', fp);
+}
+
+static void
 json_escape(const char *s, FILE *fp)
 {
-	const char *p;
 
 	if (s == NULL || s[0] == '\0') {
 		fputs("\"\"", fp);
 		return;
 	}
 
-	fputc('"', fp);
-	for (p = s; *p != '\0'; p++) {
-		switch (*p) {
-		case '"':  fputs("\\\"", fp); break;
-		case '\\': fputs("\\\\", fp); break;
-		case '\b': fputs("\\b", fp); break;
-		case '\f': fputs("\\f", fp); break;
-		case '\n': fputs("\\n", fp); break;
-		case '\r': fputs("\\r", fp); break;
-		case '\t': fputs("\\t", fp); break;
-		default:
-			if ((unsigned char)*p < 0x20)
-				fprintf(fp, "\\u%04x", (unsigned char)*p);
-			else
-				fputc(*p, fp);
-			break;
-		}
-	}
-	fputc('"', fp);
+	json_escape_bytes((const unsigned char *)s, strlen(s), false, fp);
 }
 
 /*
@@ -97,32 +185,8 @@ json_escape(const char *s, FILE *fp)
 static void
 json_escape_n(const char *s, size_t maxlen, FILE *fp)
 {
-	size_t i;
 
-	if (s == NULL || maxlen == 0) {
-		fputs("\"\"", fp);
-		return;
-	}
-
-	fputc('"', fp);
-	for (i = 0; i < maxlen && s[i] != '\0'; i++) {
-		switch (s[i]) {
-		case '"':  fputs("\\\"", fp); break;
-		case '\\': fputs("\\\\", fp); break;
-		case '\b': fputs("\\b", fp); break;
-		case '\f': fputs("\\f", fp); break;
-		case '\n': fputs("\\n", fp); break;
-		case '\r': fputs("\\r", fp); break;
-		case '\t': fputs("\\t", fp); break;
-		default:
-			if ((unsigned char)s[i] < 0x20)
-				fprintf(fp, "\\u%04x", (unsigned char)s[i]);
-			else
-				fputc(s[i], fp);
-			break;
-		}
-	}
-	fputc('"', fp);
+	json_escape_bytes((const unsigned char *)s, maxlen, true, fp);
 }
 
 /* Indent helper for pretty-printing */

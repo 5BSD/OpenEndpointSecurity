@@ -309,6 +309,7 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 	struct oes_pending **auth_eps = NULL;
 	size_t auth_count = 0;
 	size_t auth_max = 0;
+	bool auth_consulted = false;
 	bool is_auth;
 	bool cached_denied = false;
 	int error = 0;
@@ -316,7 +317,6 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 
 	event = ep->ep_msg.em_event;
 	is_auth = OES_EVENT_IS_AUTH(event);
-
 
 	if (is_auth) {
 		/* All AUTH events can sleep (NOSLEEP hooks are NOTIFY-only) */
@@ -384,6 +384,7 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 
 				if (oes_client_cache_lookup(ec, ep,
 				    &cache_result)) {
+					auth_consulted = true;
 					if (cache_result == OES_AUTH_DENY)
 						cached_denied = true;
 					if (cache_result == OES_AUTH_ALLOW)
@@ -394,22 +395,15 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 					continue;
 				}
 
-				ep_client = oes_pending_clone(ep);
-				if (ep_client == NULL) {
-					ec->ec_events_dropped++;
-					EC_UNLOCK(ec);
-					continue;
-				}
+				/*
+				 * AUTH path is sleepable (MTX_DEF locks),
+				 * use M_WAITOK to guarantee allocation
+				 * rather than silently skipping clients.
+				 */
+				ep_client = oes_pending_clone(ep, M_WAITOK);
 
-				if (ag == NULL) {
-					ag = oes_auth_group_alloc();
-					if (ag == NULL) {
-						ec->ec_events_dropped++;
-						oes_pending_rele(ep_client);
-						EC_UNLOCK(ec);
-						continue;
-					}
-				}
+				if (ag == NULL)
+					ag = oes_auth_group_alloc(M_WAITOK);
 
 				if (timeout == 0)
 					timeout = OES_DEFAULT_TIMEOUT_MS;
@@ -471,7 +465,7 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 			continue;
 		}
 
-		ep_client = oes_pending_clone(ep);
+		ep_client = oes_pending_clone(ep, M_NOWAIT);
 		if (ep_client != NULL) {
 			oes_event_enqueue(ec, ep_client);
 			oes_pending_rele(ep_client);
@@ -491,7 +485,7 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 	 * allocation failure, muting, or no subscriptions), the event
 	 * is implicitly allowed. Log this for observability.
 	 */
-	if (is_auth && ag != NULL && auth_count == 0)
+	if (is_auth && auth_count == 0 && !auth_consulted && !cached_denied)
 		OES_DEBUG("AUTH event 0x%x: no clients consulted, fail-open",
 		    event);
 	if (is_auth && auth_count > 0 && ag != NULL)

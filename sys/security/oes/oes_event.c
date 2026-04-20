@@ -86,11 +86,11 @@ struct oes_auth_group {
 };
 
 struct oes_auth_group *
-oes_auth_group_alloc(void)
+oes_auth_group_alloc(int mflags)
 {
 	struct oes_auth_group *ag;
 
-	ag = malloc(sizeof(*ag), M_OES, M_NOWAIT | M_ZERO);
+	ag = malloc(sizeof(*ag), M_OES, mflags | M_ZERO);
 	if (ag == NULL)
 		return (NULL);
 
@@ -314,14 +314,14 @@ oes_pending_alloc(oes_event_type_t event, struct proc *p)
 }
 
 struct oes_pending *
-oes_pending_clone(const struct oes_pending *src)
+oes_pending_clone(const struct oes_pending *src, int mflags)
 {
 	struct oes_pending *ep;
 
 	if (src == NULL)
 		return (NULL);
 
-	ep = malloc(sizeof(*ep), M_OES, M_NOWAIT | M_ZERO);
+	ep = malloc(sizeof(*ep), M_OES, mflags | M_ZERO);
 	if (ep == NULL)
 		return (NULL);
 

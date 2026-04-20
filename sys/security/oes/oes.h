@@ -249,7 +249,7 @@ typedef struct {
 	int64_t		ep_start_usec;	/* Process start time (microseconds) */
 
 	/* Supplementary groups */
-	uint16_t	ep_ngroups;	/* Number of supplementary groups */
+	uint16_t	ep_ngroups;	/* Total supplementary groups (may exceed 16) */
 	gid_t		ep_groups[16];	/* First 16 supplementary groups */
 
 	/* Audit info */
