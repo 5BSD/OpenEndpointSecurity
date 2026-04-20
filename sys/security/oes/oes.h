@@ -158,6 +158,19 @@ typedef enum {
  *   NOTIFY_KLDUNLOAD is available via kld_unload eventhandler.
  *
  * Future work: Propose new MAC hooks to FreeBSD for AUTH operations.
+ *
+ * NOSLEEP limitation (NOTIFY-only events):
+ *
+ * The following events use NOSLEEP MAC hooks or eventhandlers that
+ * cannot block the calling thread. They are available as NOTIFY events
+ * only; subscribing to AUTH versions of these will have no effect:
+ *
+ *   socket_connect, socket_bind, socket_listen, socket_create,
+ *   socket_accept, socket_send, socket_receive, socket_stat,
+ *   socket_poll, pipe_read, pipe_write, pipe_stat, pipe_poll,
+ *   pipe_ioctl, reboot, sysctl, kenv, signal, setuid, setgid,
+ *   mount_stat, priv_check, proc_sched, unmount, kldunload,
+ *   fork, exit.
  */
 
 /*

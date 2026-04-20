@@ -486,7 +486,14 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 	/*
 	 * Wait for AUTH responses. All AUTH events can sleep
 	 * (NOSLEEP hooks are NOTIFY-only now).
+	 *
+	 * If no AUTH-mode clients were consulted (all skipped due to
+	 * allocation failure, muting, or no subscriptions), the event
+	 * is implicitly allowed. Log this for observability.
 	 */
+	if (is_auth && ag != NULL && auth_count == 0)
+		OES_DEBUG("AUTH event 0x%x: no clients consulted, fail-open",
+		    event);
 	if (is_auth && auth_count > 0 && ag != NULL)
 		error = oes_auth_group_wait(ag, auth_eps, auth_count);
 	if (is_auth && cached_denied)

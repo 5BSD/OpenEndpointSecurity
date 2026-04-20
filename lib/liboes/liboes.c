@@ -243,7 +243,7 @@ int
 oes_cache_clear(oes_client_t *client)
 {
 
-	return (ioctl(client->ec_fd, OES_IOC_CACHE_CLEAR));
+	return (ioctl(client->ec_fd, OES_IOC_CACHE_CLEAR, NULL));
 }
 
 /*
