@@ -316,8 +316,10 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 	struct oes_pending *ep_notify;
 	struct oes_auth_group *ag = NULL;
 	struct oes_pending **auth_eps = NULL;
+	struct oes_pending **auth_clones = NULL;
 	size_t auth_count = 0;
 	size_t auth_max = 0;
+	size_t clone_idx = 0;
 	bool auth_consulted = false;
 	bool is_auth;
 	bool cached_denied = false;
@@ -328,20 +330,50 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 	is_auth = OES_EVENT_IS_AUTH(event);
 
 	if (is_auth) {
-		/* All AUTH events can sleep (NOSLEEP hooks are NOTIFY-only) */
+		/*
+		 * AUTH events can sleep (NOSLEEP hooks are NOTIFY-only).
+		 *
+		 * Pre-allocate everything with M_WAITOK BEFORE taking any
+		 * locks.  This avoids both M_WAITOK-under-mutex warnings
+		 * and the silent fail-open when M_NOWAIT fails.
+		 *
+		 * We allocate for sc_nclients and retry if it grew.
+		 */
 		for (;;) {
-			size_t need;
+			size_t need, i;
 
 			OES_LOCK();
 			need = oes_softc.sc_nclients;
+			if (need == 0) {
+				/* No clients at all, nothing to dispatch */
+				break;
+			}
 			if (need <= auth_max)
 				break;
 			OES_UNLOCK();
 
+			/* Free old pools if retrying */
 			if (auth_eps != NULL)
 				free(auth_eps, M_OES);
+			if (auth_clones != NULL) {
+				for (i = 0; i < auth_max; i++) {
+					if (auth_clones[i] != NULL)
+						oes_pending_rele(auth_clones[i]);
+				}
+				free(auth_clones, M_OES);
+			}
+			if (ag != NULL) {
+				oes_auth_group_rele(ag);
+				ag = NULL;
+			}
+
 			auth_eps = malloc(sizeof(*auth_eps) * need,
 			    M_OES, M_WAITOK | M_ZERO);
+			auth_clones = malloc(sizeof(*auth_clones) * need,
+			    M_OES, M_WAITOK | M_ZERO);
+			for (i = 0; i < need; i++)
+				auth_clones[i] = oes_pending_clone(ep);
+			ag = oes_auth_group_alloc();
 			auth_max = need;
 		}
 	} else {
@@ -404,22 +436,21 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 					continue;
 				}
 
-				ep_client = oes_pending_clone(ep);
+				/*
+				 * Take a pre-allocated clone from the pool.
+				 * Pool was sized to sc_nclients so this
+				 * should always succeed.
+				 */
+				ep_client = NULL;
+				if (clone_idx < auth_max)
+					ep_client = auth_clones[clone_idx];
 				if (ep_client == NULL) {
 					ec->ec_events_dropped++;
 					EC_UNLOCK(ec);
 					continue;
 				}
-
-				if (ag == NULL) {
-					ag = oes_auth_group_alloc();
-					if (ag == NULL) {
-						ec->ec_events_dropped++;
-						oes_pending_rele(ep_client);
-						EC_UNLOCK(ec);
-						continue;
-					}
-				}
+				auth_clones[clone_idx] = NULL; /* taken */
+				clone_idx++;
 
 				if (timeout == 0)
 					timeout = OES_DEFAULT_TIMEOUT_MS;
@@ -586,6 +617,17 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 		for (i = 0; i < auth_count; i++)
 			oes_pending_rele(auth_eps[i]);
 		free(auth_eps, M_OES);
+	}
+
+	/* Free unused pre-allocated clones */
+	if (auth_clones != NULL) {
+		size_t i;
+
+		for (i = 0; i < auth_max; i++) {
+			if (auth_clones[i] != NULL)
+				oes_pending_rele(auth_clones[i]);
+		}
+		free(auth_clones, M_OES);
 	}
 
 	if (ag != NULL)
