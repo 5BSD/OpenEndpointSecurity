@@ -567,12 +567,23 @@ oes_client_is_muted(struct oes_client *ec, struct proc *p, oes_event_type_t even
 	if (p == NULL)
 		return (false);
 
-	/* Acquire PROC_LOCK to safely read p_stats for genid */
+	/*
+	 * Read process genid for mute matching.
+	 *
+	 * Use mtx_trylock to avoid lock order reversal: the dispatch
+	 * path holds oes -> oes_client -> (need process lock), but MAC
+	 * hooks like proc_check_debug enter with process lock already
+	 * held. If we can't get the lock, skip the mute check (the
+	 * event will be delivered rather than suppressed).
+	 */
 	{
 		bool owned = mtx_owned(&p->p_mtx);
+		bool locked = owned;
 
 		if (!owned)
-			PROC_LOCK(p);
+			locked = mtx_trylock(&p->p_mtx);
+		if (!locked)
+			return (false);  /* Can't check, don't mute */
 		if ((p->p_flag & P_WEXIT) != 0) {
 			if (!owned)
 				PROC_UNLOCK(p);
@@ -1221,7 +1232,7 @@ oes_events_to_bitmap(const oes_event_type_t *events, size_t count,
 
 		/* Validate event is a defined enum value */
 		if (!oes_event_is_valid(ev)) {
-			OES_WARN("event type 0x%x is not a defined event",
+			OES_DEBUG("event type 0x%x is not a defined event",
 			    ev);
 			valid = false;
 			continue;

@@ -404,15 +404,22 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 					continue;
 				}
 
-				/*
-				 * AUTH path is sleepable (MTX_DEF locks),
-				 * use M_WAITOK to guarantee allocation
-				 * rather than silently skipping clients.
-				 */
-				ep_client = oes_pending_clone(ep, M_WAITOK);
+				ep_client = oes_pending_clone(ep);
+				if (ep_client == NULL) {
+					ec->ec_events_dropped++;
+					EC_UNLOCK(ec);
+					continue;
+				}
 
-				if (ag == NULL)
-					ag = oes_auth_group_alloc(M_WAITOK);
+				if (ag == NULL) {
+					ag = oes_auth_group_alloc();
+					if (ag == NULL) {
+						ec->ec_events_dropped++;
+						oes_pending_rele(ep_client);
+						EC_UNLOCK(ec);
+						continue;
+					}
+				}
 
 				if (timeout == 0)
 					timeout = OES_DEFAULT_TIMEOUT_MS;
@@ -474,7 +481,7 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 			continue;
 		}
 
-		ep_client = oes_pending_clone(ep, M_NOWAIT);
+		ep_client = oes_pending_clone(ep);
 		if (ep_client != NULL) {
 			oes_event_enqueue(ec, ep_client);
 			oes_pending_rele(ep_client);

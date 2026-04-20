@@ -603,9 +603,9 @@ int	oes_event_respond_flags(struct oes_client *ec, uint64_t msg_id,
 	    oes_auth_result_t result, uint32_t allowed_flags,
 	    uint32_t denied_flags);
 void	oes_event_handle_timeout(struct oes_pending *ep);
-struct oes_pending *oes_pending_clone(const struct oes_pending *src, int mflags);
+struct oes_pending *oes_pending_clone(const struct oes_pending *src);
 
-struct oes_auth_group *oes_auth_group_alloc(int mflags);
+struct oes_auth_group *oes_auth_group_alloc(void);
 void	oes_auth_group_hold(struct oes_auth_group *ag);
 void	oes_auth_group_rele(struct oes_auth_group *ag);
 void	oes_auth_group_add_pending(struct oes_auth_group *ag);

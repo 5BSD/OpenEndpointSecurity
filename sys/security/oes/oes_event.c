@@ -86,11 +86,11 @@ struct oes_auth_group {
 };
 
 struct oes_auth_group *
-oes_auth_group_alloc(int mflags)
+oes_auth_group_alloc(void)
 {
 	struct oes_auth_group *ag;
 
-	ag = malloc(sizeof(*ag), M_OES, mflags | M_ZERO);
+	ag = malloc(sizeof(*ag), M_OES, M_NOWAIT | M_ZERO);
 	if (ag == NULL)
 		return (NULL);
 
@@ -306,26 +306,35 @@ oes_pending_alloc(oes_event_type_t event, struct proc *p)
 
 	if (p != NULL) {
 		bool owned = mtx_owned(&p->p_mtx);
+		bool locked = owned;
 
 		if (!owned)
-			PROC_LOCK(p);
-		oes_fill_process(&ep->ep_msg.em_process, p, NULL);
-		if (!owned)
-			PROC_UNLOCK(p);
+			locked = mtx_trylock(&p->p_mtx);
+		if (locked) {
+			oes_fill_process(&ep->ep_msg.em_process, p, NULL);
+			if (!owned)
+				PROC_UNLOCK(p);
+		} else {
+			/* Best-effort: fill what we can without the lock */
+			ep->ep_msg.em_process.ep_pid = p->p_pid;
+			ep->ep_msg.em_process.ep_token.ept_id = p->p_pid;
+			strlcpy(ep->ep_msg.em_process.ep_comm, p->p_comm,
+			    sizeof(ep->ep_msg.em_process.ep_comm));
+		}
 	}
 
 	return (ep);
 }
 
 struct oes_pending *
-oes_pending_clone(const struct oes_pending *src, int mflags)
+oes_pending_clone(const struct oes_pending *src)
 {
 	struct oes_pending *ep;
 
 	if (src == NULL)
 		return (NULL);
 
-	ep = malloc(sizeof(*ep), M_OES, mflags | M_ZERO);
+	ep = malloc(sizeof(*ep), M_OES, M_NOWAIT | M_ZERO);
 	if (ep == NULL)
 		return (NULL);
 
