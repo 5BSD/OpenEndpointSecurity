@@ -2872,16 +2872,29 @@ oes_mac_cred_check_setgid(struct ucred *cred, gid_t gid)
 /*
  * MAC hook: proc_check_debug (for ptrace)
  *
- * This hook is sleepable - can block for AUTH response.
+ * Called from p_candebug() with PROC_LOCK held (MA_OWNED assert).
+ * Cannot sleep or take OES_LOCK -- must use NOSLEEP notify path.
+ * AUTH_PTRACE is not possible because we cannot block under PROC_LOCK.
  */
 static int
 oes_mac_proc_check_debug(struct ucred *cred, struct proc *p)
 {
-	struct oes_vnode_event_info info = OES_VNODE_INFO_INIT(cred);
+	struct oes_pending *ep;
+	struct proc *curp = curthread->td_proc;
 
-	info.target_proc = p;
+	if (!oes_softc.sc_active)
+		return (0);
 
-	return (oes_generate_vnode_event(OES_EVENT_AUTH_PTRACE, &info));
+	ep = oes_pending_alloc(OES_EVENT_NOTIFY_PTRACE, curp);
+	if (ep == NULL)
+		return (0);
+
+	/* p is already locked by caller (p_candebug) */
+	oes_fill_process(&ep->ep_msg.em_event_data.ptrace.target, p, NULL);
+
+	oes_deliver_notify_nosleep(ep, curp);
+	oes_pending_rele(ep);
+	return (0);
 }
 
 static void
