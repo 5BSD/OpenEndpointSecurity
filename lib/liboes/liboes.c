@@ -322,8 +322,8 @@ oes_subscribe_bitmap_ex(oes_client_t *client, const uint64_t auth_bitmap[2],
 int
 oes_subscribe_all(oes_client_t *client, bool auth, bool notify)
 {
-	/* AUTH bitmap: bits 1-34 + bits 41-56 */
-	const uint64_t all_auth[2] = { 0x1FE007FFFFFFEULL, 0 };
+	/* AUTH bitmap: bits 1-34 (EXEC..RELABEL) + 41-42 (SWAPON, SWAPOFF) */
+	const uint64_t all_auth[2] = { 0x6007FFFFFFFEULL, 0 };
 
 	/*
 	 * NOTIFY bitmap: bits 1-4,6-9,11,13-66

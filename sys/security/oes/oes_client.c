@@ -318,9 +318,9 @@ oes_client_subscribe_bitmap(struct oes_client *ec, uint64_t auth_bitmap,
 	if (flags & OES_SUB_REPLACE)
 		oes_client_unsubscribe_all(ec);
 
-	/* Apply bitmaps (low 64 bits only for legacy ioctl) */
-	ec->ec_subscriptions[0] |= auth_bitmap;
-	ec->ec_subscriptions[2] |= notify_bitmap;
+	/* Apply bitmaps, masking out undefined event bits */
+	ec->ec_subscriptions[0] |= auth_bitmap & OES_VALID_AUTH_LO;
+	ec->ec_subscriptions[2] |= notify_bitmap & OES_VALID_NOTIFY_LO;
 
 	EC_UNLOCK(ec);
 
@@ -357,11 +357,11 @@ oes_client_subscribe_bitmap_ex(struct oes_client *ec,
 	if (flags & OES_SUB_REPLACE)
 		oes_client_unsubscribe_all(ec);
 
-	/* Apply bitmaps */
-	ec->ec_subscriptions[0] |= auth_bitmap[0];
-	ec->ec_subscriptions[1] |= auth_bitmap[1];
-	ec->ec_subscriptions[2] |= notify_bitmap[0];
-	ec->ec_subscriptions[3] |= notify_bitmap[1];
+	/* Apply bitmaps, masking out undefined event bits */
+	ec->ec_subscriptions[0] |= auth_bitmap[0] & OES_VALID_AUTH_LO;
+	ec->ec_subscriptions[1] |= auth_bitmap[1] & OES_VALID_AUTH_HI;
+	ec->ec_subscriptions[2] |= notify_bitmap[0] & OES_VALID_NOTIFY_LO;
+	ec->ec_subscriptions[3] |= notify_bitmap[1] & OES_VALID_NOTIFY_HI;
 
 	EC_UNLOCK(ec);
 
@@ -1419,10 +1419,10 @@ oes_client_unmute_events(struct oes_client *ec, oes_proc_token_t *token,
 				    em->em_events[1] == 0 &&
 				    em->em_events[2] == 0 &&
 				    em->em_events[3] == 0) {
-					em->em_events[0] = ~0ULL;
-					em->em_events[1] = ~0ULL;
-					em->em_events[2] = ~0ULL;
-					em->em_events[3] = ~0ULL;
+					em->em_events[0] = OES_VALID_AUTH_LO;
+					em->em_events[1] = OES_VALID_AUTH_HI;
+					em->em_events[2] = OES_VALID_NOTIFY_LO;
+					em->em_events[3] = OES_VALID_NOTIFY_HI;
 				}
 
 				/* Remove events from entry */
@@ -1465,10 +1465,10 @@ oes_client_unmute_events(struct oes_client *ec, oes_proc_token_t *token,
 			 */
 			if (em->em_events[0] == 0 && em->em_events[1] == 0 &&
 			    em->em_events[2] == 0 && em->em_events[3] == 0) {
-				em->em_events[0] = ~0ULL;
-				em->em_events[1] = ~0ULL;
-				em->em_events[2] = ~0ULL;
-				em->em_events[3] = ~0ULL;
+				em->em_events[0] = OES_VALID_AUTH_LO;
+				em->em_events[1] = OES_VALID_AUTH_HI;
+				em->em_events[2] = OES_VALID_NOTIFY_LO;
+				em->em_events[3] = OES_VALID_NOTIFY_HI;
 			}
 
 			/* Remove events from entry */
@@ -1637,10 +1637,10 @@ oes_client_unmute_path_events(struct oes_client *ec, const char *path,
 			 */
 			if (emp->emp_events[0] == 0 && emp->emp_events[1] == 0 &&
 			    emp->emp_events[2] == 0 && emp->emp_events[3] == 0) {
-				emp->emp_events[0] = ~0ULL;
-				emp->emp_events[1] = ~0ULL;
-				emp->emp_events[2] = ~0ULL;
-				emp->emp_events[3] = ~0ULL;
+				emp->emp_events[0] = OES_VALID_AUTH_LO;
+				emp->emp_events[1] = OES_VALID_AUTH_HI;
+				emp->emp_events[2] = OES_VALID_NOTIFY_LO;
+				emp->emp_events[3] = OES_VALID_NOTIFY_HI;
 			}
 
 			/* Remove events from entry */

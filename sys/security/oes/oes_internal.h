@@ -409,6 +409,22 @@ oes_event_is_valid(oes_event_type_t ev)
 	}
 }
 
+/*
+ * Valid event bitmaps.
+ *
+ * These define which bits correspond to real enum values.
+ * Used to mask bitmap subscribe inputs, expand "mute all" correctly,
+ * and validate cache keys.
+ *
+ * AUTH: bits 1-34 (EXEC..RELABEL), 41-42 (SWAPON, SWAPOFF)
+ * NOTIFY: bits 1-4,6-9,11,13-63 (low), 64-66 (high)
+ *   Gaps at bits 0, 5, 10, 12 (no NOTIFY events defined there)
+ */
+#define OES_VALID_AUTH_LO	0x6007FFFFFFFEULL
+#define OES_VALID_AUTH_HI	0x0ULL
+#define OES_VALID_NOTIFY_LO	0xFFFFFFFFFFFFEBDEULL
+#define OES_VALID_NOTIFY_HI	0x7ULL
+
 static const oes_event_type_t oes_auth_notify_map[] = {
 	[OES_EVENT_AUTH_EXEC]		= OES_EVENT_NOTIFY_EXEC,
 	[OES_EVENT_AUTH_OPEN]		= OES_EVENT_NOTIFY_OPEN,

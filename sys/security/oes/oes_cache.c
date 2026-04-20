@@ -349,7 +349,8 @@ oes_client_cache_add(struct oes_client *ec, const oes_cache_entry_t *entry)
 		return (EINVAL);
 	if (entry->ece_key.eck_event == OES_CACHE_EVENT_ANY)
 		return (EINVAL);
-	if (!OES_EVENT_IS_AUTH(entry->ece_key.eck_event))
+	if (!oes_event_is_valid(entry->ece_key.eck_event) ||
+	    !OES_EVENT_IS_AUTH(entry->ece_key.eck_event))
 		return (EINVAL);
 	/* AUTH_PTRACE targets processes, not files - can't cache */
 	if (entry->ece_key.eck_event == OES_EVENT_AUTH_PTRACE)
@@ -415,7 +416,8 @@ oes_client_cache_remove(struct oes_client *ec, const oes_cache_key_t *key)
 	if (key == NULL)
 		return (EINVAL);
 	if (key->eck_event != OES_CACHE_EVENT_ANY &&
-	    !OES_EVENT_IS_AUTH(key->eck_event))
+	    (!oes_event_is_valid(key->eck_event) ||
+	     !OES_EVENT_IS_AUTH(key->eck_event)))
 		return (EINVAL);
 	flags = key->eck_flags;
 	if (!oes_cache_flags_valid(flags))
