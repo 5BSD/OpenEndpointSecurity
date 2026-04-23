@@ -77,6 +77,234 @@ SDT_PROBE_DEFINE2(oes, , , cache__miss,
     "oes_event_type_t",		/* event type */
     "pid_t");			/* process ID */
 
+/*
+ * oes_event_is_valid - Validate that an event type is a defined enum value.
+ * Moved out of header to avoid duplicating 100+ lines per translation unit.
+ */
+bool
+oes_event_is_valid(oes_event_type_t ev)
+{
+	if (OES_EVENT_IS_AUTH(ev)) {
+		switch (ev) {
+		case OES_EVENT_AUTH_EXEC:
+		case OES_EVENT_AUTH_OPEN:
+		case OES_EVENT_AUTH_CREATE:
+		case OES_EVENT_AUTH_UNLINK:
+		case OES_EVENT_AUTH_RENAME:
+		case OES_EVENT_AUTH_LINK:
+		case OES_EVENT_AUTH_MOUNT:
+		case OES_EVENT_AUTH_KLDLOAD:
+		case OES_EVENT_AUTH_MMAP:
+		case OES_EVENT_AUTH_MPROTECT:
+		case OES_EVENT_AUTH_CHDIR:
+		case OES_EVENT_AUTH_CHROOT:
+		case OES_EVENT_AUTH_SETEXTATTR:
+		case OES_EVENT_AUTH_PTRACE:
+		case OES_EVENT_AUTH_ACCESS:
+		case OES_EVENT_AUTH_READ:
+		case OES_EVENT_AUTH_WRITE:
+		case OES_EVENT_AUTH_LOOKUP:
+		case OES_EVENT_AUTH_SETMODE:
+		case OES_EVENT_AUTH_SETOWNER:
+		case OES_EVENT_AUTH_SETFLAGS:
+		case OES_EVENT_AUTH_SETUTIMES:
+		case OES_EVENT_AUTH_STAT:
+		case OES_EVENT_AUTH_POLL:
+		case OES_EVENT_AUTH_REVOKE:
+		case OES_EVENT_AUTH_READDIR:
+		case OES_EVENT_AUTH_READLINK:
+		case OES_EVENT_AUTH_GETEXTATTR:
+		case OES_EVENT_AUTH_DELETEEXTATTR:
+		case OES_EVENT_AUTH_LISTEXTATTR:
+		case OES_EVENT_AUTH_GETACL:
+		case OES_EVENT_AUTH_SETACL:
+		case OES_EVENT_AUTH_DELETEACL:
+		case OES_EVENT_AUTH_RELABEL:
+		case OES_EVENT_AUTH_SWAPON:
+		case OES_EVENT_AUTH_SWAPOFF:
+			return (true);
+		default:
+			return (false);
+		}
+	}
+
+	switch (ev) {
+	case OES_EVENT_NOTIFY_EXEC:
+	case OES_EVENT_NOTIFY_EXIT:
+	case OES_EVENT_NOTIFY_FORK:
+	case OES_EVENT_NOTIFY_OPEN:
+	case OES_EVENT_NOTIFY_CREATE:
+	case OES_EVENT_NOTIFY_UNLINK:
+	case OES_EVENT_NOTIFY_RENAME:
+	case OES_EVENT_NOTIFY_MOUNT:
+	case OES_EVENT_NOTIFY_KLDLOAD:
+	case OES_EVENT_NOTIFY_SIGNAL:
+	case OES_EVENT_NOTIFY_PTRACE:
+	case OES_EVENT_NOTIFY_SETUID:
+	case OES_EVENT_NOTIFY_SETGID:
+	case OES_EVENT_NOTIFY_ACCESS:
+	case OES_EVENT_NOTIFY_READ:
+	case OES_EVENT_NOTIFY_WRITE:
+	case OES_EVENT_NOTIFY_LOOKUP:
+	case OES_EVENT_NOTIFY_SETMODE:
+	case OES_EVENT_NOTIFY_SETOWNER:
+	case OES_EVENT_NOTIFY_SETFLAGS:
+	case OES_EVENT_NOTIFY_SETUTIMES:
+	case OES_EVENT_NOTIFY_STAT:
+	case OES_EVENT_NOTIFY_POLL:
+	case OES_EVENT_NOTIFY_REVOKE:
+	case OES_EVENT_NOTIFY_READDIR:
+	case OES_EVENT_NOTIFY_READLINK:
+	case OES_EVENT_NOTIFY_GETEXTATTR:
+	case OES_EVENT_NOTIFY_DELETEEXTATTR:
+	case OES_EVENT_NOTIFY_LISTEXTATTR:
+	case OES_EVENT_NOTIFY_GETACL:
+	case OES_EVENT_NOTIFY_SETACL:
+	case OES_EVENT_NOTIFY_DELETEACL:
+	case OES_EVENT_NOTIFY_RELABEL:
+	case OES_EVENT_NOTIFY_SETEXTATTR:
+	case OES_EVENT_NOTIFY_SOCKET_CONNECT:
+	case OES_EVENT_NOTIFY_SOCKET_BIND:
+	case OES_EVENT_NOTIFY_SOCKET_LISTEN:
+	case OES_EVENT_NOTIFY_REBOOT:
+	case OES_EVENT_NOTIFY_SYSCTL:
+	case OES_EVENT_NOTIFY_KENV:
+	case OES_EVENT_NOTIFY_SWAPON:
+	case OES_EVENT_NOTIFY_SWAPOFF:
+	case OES_EVENT_NOTIFY_UNMOUNT:
+	case OES_EVENT_NOTIFY_KLDUNLOAD:
+	case OES_EVENT_NOTIFY_LINK:
+	case OES_EVENT_NOTIFY_MMAP:
+	case OES_EVENT_NOTIFY_MPROTECT:
+	case OES_EVENT_NOTIFY_CHDIR:
+	case OES_EVENT_NOTIFY_CHROOT:
+	case OES_EVENT_NOTIFY_SOCKET_CREATE:
+	case OES_EVENT_NOTIFY_SOCKET_ACCEPT:
+	case OES_EVENT_NOTIFY_SOCKET_SEND:
+	case OES_EVENT_NOTIFY_SOCKET_RECEIVE:
+	case OES_EVENT_NOTIFY_SOCKET_STAT:
+	case OES_EVENT_NOTIFY_SOCKET_POLL:
+	case OES_EVENT_NOTIFY_PIPE_READ:
+	case OES_EVENT_NOTIFY_PIPE_WRITE:
+	case OES_EVENT_NOTIFY_PIPE_STAT:
+	case OES_EVENT_NOTIFY_PIPE_POLL:
+	case OES_EVENT_NOTIFY_PIPE_IOCTL:
+	case OES_EVENT_NOTIFY_MOUNT_STAT:
+	case OES_EVENT_NOTIFY_PRIV_CHECK:
+	case OES_EVENT_NOTIFY_PROC_SCHED:
+		return (true);
+	default:
+		return (false);
+	}
+}
+
+/*
+ * AUTH → NOTIFY event mapping table.
+ */
+static const oes_event_type_t oes_auth_notify_map[] = {
+	[OES_EVENT_AUTH_EXEC]		= OES_EVENT_NOTIFY_EXEC,
+	[OES_EVENT_AUTH_OPEN]		= OES_EVENT_NOTIFY_OPEN,
+	[OES_EVENT_AUTH_CREATE]		= OES_EVENT_NOTIFY_CREATE,
+	[OES_EVENT_AUTH_UNLINK]		= OES_EVENT_NOTIFY_UNLINK,
+	[OES_EVENT_AUTH_RENAME]		= OES_EVENT_NOTIFY_RENAME,
+	[OES_EVENT_AUTH_LINK]		= OES_EVENT_NOTIFY_LINK,
+	[OES_EVENT_AUTH_MOUNT]		= OES_EVENT_NOTIFY_MOUNT,
+	[OES_EVENT_AUTH_KLDLOAD]	= OES_EVENT_NOTIFY_KLDLOAD,
+	[OES_EVENT_AUTH_MMAP]		= OES_EVENT_NOTIFY_MMAP,
+	[OES_EVENT_AUTH_MPROTECT]	= OES_EVENT_NOTIFY_MPROTECT,
+	[OES_EVENT_AUTH_CHDIR]		= OES_EVENT_NOTIFY_CHDIR,
+	[OES_EVENT_AUTH_CHROOT]		= OES_EVENT_NOTIFY_CHROOT,
+	[OES_EVENT_AUTH_SETEXTATTR]	= OES_EVENT_NOTIFY_SETEXTATTR,
+	[OES_EVENT_AUTH_PTRACE]		= OES_EVENT_NOTIFY_PTRACE,
+	[OES_EVENT_AUTH_ACCESS]		= OES_EVENT_NOTIFY_ACCESS,
+	[OES_EVENT_AUTH_READ]		= OES_EVENT_NOTIFY_READ,
+	[OES_EVENT_AUTH_WRITE]		= OES_EVENT_NOTIFY_WRITE,
+	[OES_EVENT_AUTH_LOOKUP]		= OES_EVENT_NOTIFY_LOOKUP,
+	[OES_EVENT_AUTH_SETMODE]	= OES_EVENT_NOTIFY_SETMODE,
+	[OES_EVENT_AUTH_SETOWNER]	= OES_EVENT_NOTIFY_SETOWNER,
+	[OES_EVENT_AUTH_SETFLAGS]	= OES_EVENT_NOTIFY_SETFLAGS,
+	[OES_EVENT_AUTH_SETUTIMES]	= OES_EVENT_NOTIFY_SETUTIMES,
+	[OES_EVENT_AUTH_STAT]		= OES_EVENT_NOTIFY_STAT,
+	[OES_EVENT_AUTH_POLL]		= OES_EVENT_NOTIFY_POLL,
+	[OES_EVENT_AUTH_REVOKE]		= OES_EVENT_NOTIFY_REVOKE,
+	[OES_EVENT_AUTH_READDIR]	= OES_EVENT_NOTIFY_READDIR,
+	[OES_EVENT_AUTH_READLINK]	= OES_EVENT_NOTIFY_READLINK,
+	[OES_EVENT_AUTH_GETEXTATTR]	= OES_EVENT_NOTIFY_GETEXTATTR,
+	[OES_EVENT_AUTH_DELETEEXTATTR]	= OES_EVENT_NOTIFY_DELETEEXTATTR,
+	[OES_EVENT_AUTH_LISTEXTATTR]	= OES_EVENT_NOTIFY_LISTEXTATTR,
+	[OES_EVENT_AUTH_GETACL]		= OES_EVENT_NOTIFY_GETACL,
+	[OES_EVENT_AUTH_SETACL]		= OES_EVENT_NOTIFY_SETACL,
+	[OES_EVENT_AUTH_DELETEACL]	= OES_EVENT_NOTIFY_DELETEACL,
+	[OES_EVENT_AUTH_RELABEL]	= OES_EVENT_NOTIFY_RELABEL,
+	[OES_EVENT_AUTH_SWAPON]		= OES_EVENT_NOTIFY_SWAPON,
+	[OES_EVENT_AUTH_SWAPOFF]	= OES_EVENT_NOTIFY_SWAPOFF,
+};
+
+oes_event_type_t
+oes_auth_to_notify(oes_event_type_t auth_event)
+{
+	u_int idx = (u_int)auth_event;
+
+	if (idx < nitems(oes_auth_notify_map))
+		return (oes_auth_notify_map[idx]);
+	return (0);
+}
+
+/*
+ * String table helpers.
+ *
+ * The string table lives immediately after sizeof(oes_message_t) in the
+ * same allocation as oes_pending.  Offsets are relative to the start
+ * of oes_message_t so userspace can use oes_msg_string(msg, off).
+ */
+void
+oes_strtab_init(struct oes_strtab *st)
+{
+	st->st_off = sizeof(oes_message_t);
+	st->st_max = OES_MSG_MAX_SIZE;
+}
+
+uint32_t
+oes_strtab_add(struct oes_strtab *st, void *msg_base, const char *str)
+{
+	size_t len;
+	uint32_t off;
+
+	if (str == NULL || str[0] == '\0')
+		return (0);
+
+	len = strlen(str) + 1;
+	if (st->st_off + len > st->st_max)
+		return (0);
+
+	off = st->st_off;
+	memcpy((char *)msg_base + off, str, len);
+	st->st_off += len;
+	return (off);
+}
+
+/*
+ * Add raw data (e.g., NUL-separated argv) to the string table.
+ * Returns offset or 0 on overflow.
+ */
+uint32_t
+oes_strtab_add_buf(struct oes_strtab *st, void *msg_base,
+    const void *data, size_t len)
+{
+	uint32_t off;
+
+	if (data == NULL || len == 0)
+		return (0);
+
+	if (st->st_off + len > st->st_max)
+		return (0);
+
+	off = st->st_off;
+	memcpy((char *)msg_base + off, data, len);
+	st->st_off += len;
+	return (off);
+}
+
 struct oes_auth_group {
 	struct mtx	ag_mtx;
 	struct cv	ag_cv;
@@ -86,11 +314,11 @@ struct oes_auth_group {
 };
 
 struct oes_auth_group *
-oes_auth_group_alloc(void)
+oes_auth_group_alloc(int mflags)
 {
 	struct oes_auth_group *ag;
 
-	ag = malloc(sizeof(*ag), M_OES, M_NOWAIT | M_ZERO);
+	ag = malloc(sizeof(*ag), M_OES, mflags | M_ZERO);
 	if (ag == NULL)
 		return (NULL);
 
@@ -104,7 +332,6 @@ oes_auth_group_alloc(void)
 void
 oes_auth_group_hold(struct oes_auth_group *ag)
 {
-
 	if (ag == NULL)
 		return;
 	atomic_add_int(&ag->ag_refcount, 1);
@@ -113,7 +340,6 @@ oes_auth_group_hold(struct oes_auth_group *ag)
 void
 oes_auth_group_rele(struct oes_auth_group *ag)
 {
-
 	if (ag == NULL)
 		return;
 	if (atomic_fetchadd_int(&ag->ag_refcount, -1) == 1) {
@@ -126,7 +352,6 @@ oes_auth_group_rele(struct oes_auth_group *ag)
 void
 oes_auth_group_add_pending(struct oes_auth_group *ag)
 {
-
 	mtx_lock(&ag->ag_mtx);
 	ag->ag_pending++;
 	mtx_unlock(&ag->ag_mtx);
@@ -135,7 +360,6 @@ oes_auth_group_add_pending(struct oes_auth_group *ag)
 void
 oes_auth_group_cancel_pending(struct oes_auth_group *ag)
 {
-
 	mtx_lock(&ag->ag_mtx);
 	if (ag->ag_pending > 0)
 		ag->ag_pending--;
@@ -147,7 +371,6 @@ void
 oes_auth_group_mark_response(struct oes_auth_group *ag,
     oes_auth_result_t result)
 {
-
 	mtx_lock(&ag->ag_mtx);
 	if (ag->ag_pending > 0)
 		ag->ag_pending--;
@@ -273,17 +496,32 @@ oes_set_auth_deadline(struct oes_pending *ep, uint32_t timeout_ms)
 	ep->ep_msg.em_deadline = deadline;
 }
 
+/*
+ * Allocate a pending event with room for the string table.
+ *
+ * The allocation extends past ep_msg by (OES_MSG_MAX_SIZE - sizeof(oes_message_t))
+ * bytes.  The caller fills event data and appends strings via the strtab,
+ * then calls oes_pending_seal() to finalize em_size.
+ */
 struct oes_pending *
 oes_pending_alloc(oes_event_type_t event, struct proc *p)
 {
 	struct oes_pending *ep;
+	struct oes_strtab st;
+	size_t alloc_size;
 
-	ep = malloc(sizeof(*ep), M_OES, M_NOWAIT | M_ZERO);
+	/*
+	 * Allocate the fixed pending metadata + max message size.
+	 * The string table area extends past sizeof(oes_message_t).
+	 */
+	alloc_size = offsetof(struct oes_pending, ep_msg) + OES_MSG_MAX_SIZE;
+	ep = malloc(alloc_size, M_OES, M_NOWAIT | M_ZERO);
 	if (ep == NULL)
 		return (NULL);
 
 	ep->ep_refcount = 1;
 	ep->ep_msg.em_version = OES_MESSAGE_VERSION;
+	ep->ep_msg.em_size = sizeof(oes_message_t); /* minimum, grown by strtab */
 
 	/* Assign unique message ID */
 	ep->ep_msg.em_id = atomic_fetchadd_64(&oes_softc.sc_next_msg_id, 1);
@@ -304,6 +542,8 @@ oes_pending_alloc(oes_event_type_t event, struct proc *p)
 	ep->ep_group = NULL;
 	nanouptime(&ep->ep_msg.em_time);
 
+	/* Fill process info, appending paths to string table */
+	oes_strtab_init(&st);
 	if (p != NULL) {
 		bool owned = mtx_owned(&p->p_mtx);
 		bool locked = owned;
@@ -311,7 +551,8 @@ oes_pending_alloc(oes_event_type_t event, struct proc *p)
 		if (!owned)
 			locked = mtx_trylock(&p->p_mtx);
 		if (locked) {
-			oes_fill_process(&ep->ep_msg.em_process, p, NULL);
+			oes_fill_process(&ep->ep_msg.em_process, p, NULL,
+			    &st, &ep->ep_msg);
 			if (!owned)
 				PROC_UNLOCK(p);
 		} else {
@@ -322,25 +563,33 @@ oes_pending_alloc(oes_event_type_t event, struct proc *p)
 			    sizeof(ep->ep_msg.em_process.ep_comm));
 		}
 	}
+	ep->ep_msg.em_size = OES_MSG_ALIGNED(st.st_off);
 
 	return (ep);
 }
 
 struct oes_pending *
-oes_pending_clone(const struct oes_pending *src)
+oes_pending_clone(const struct oes_pending *src, int mflags)
 {
 	struct oes_pending *ep;
+	size_t msg_size, alloc_size;
 
 	if (src == NULL)
 		return (NULL);
 
-	ep = malloc(sizeof(*ep), M_OES, M_NOWAIT | M_ZERO);
+	/* Only allocate enough for the actual message (header + strings) */
+	msg_size = src->ep_msg.em_size;
+	if (msg_size < sizeof(oes_message_t))
+		msg_size = sizeof(oes_message_t);
+	alloc_size = offsetof(struct oes_pending, ep_msg) + msg_size;
+
+	ep = malloc(alloc_size, M_OES, mflags | M_ZERO);
 	if (ep == NULL)
 		return (NULL);
 
 	ep->ep_refcount = 1;
 	ep->ep_flags = src->ep_flags & EP_FLAG_AUTH;
-	ep->ep_msg = src->ep_msg;
+	bcopy(&src->ep_msg, &ep->ep_msg, msg_size);
 	ep->ep_msg.em_deadline = (struct timespec){ 0 };
 	ep->ep_deadline = (struct timespec){ 0 };
 	ep->ep_group = NULL;
@@ -358,7 +607,6 @@ oes_pending_clone(const struct oes_pending *src)
 void
 oes_pending_free(struct oes_pending *ep)
 {
-
 	if (ep->ep_flags & EP_FLAG_AUTH) {
 		cv_destroy(&ep->ep_cv);
 		mtx_destroy(&ep->ep_mtx);
@@ -373,14 +621,12 @@ oes_pending_free(struct oes_pending *ep)
 void
 oes_pending_hold(struct oes_pending *ep)
 {
-
 	atomic_add_int(&ep->ep_refcount, 1);
 }
 
 void
 oes_pending_rele(struct oes_pending *ep)
 {
-
 	if (atomic_fetchadd_int(&ep->ep_refcount, -1) == 1)
 		oes_pending_free(ep);
 }
@@ -388,7 +634,6 @@ oes_pending_rele(struct oes_pending *ep)
 int
 oes_event_enqueue(struct oes_client *ec, struct oes_pending *ep)
 {
-
 	EC_LOCK_ASSERT(ec);
 
 	if (ec->ec_queue_count >= ec->ec_queue_max) {
@@ -403,6 +648,9 @@ oes_event_enqueue(struct oes_client *ec, struct oes_pending *ep)
 	oes_pending_hold(ep);
 	TAILQ_INSERT_TAIL(&ec->ec_pending, ep, ep_link);
 	ec->ec_queue_count++;
+	ec->ec_queue_bytes += ep->ep_msg.em_size;
+	if (ec->ec_queue_count > ec->ec_queue_highwater)
+		ec->ec_queue_highwater = ec->ec_queue_count;
 	ec->ec_events_received++;
 
 	SDT_PROBE3(oes, , , event__enqueue,
@@ -428,8 +676,11 @@ oes_event_dequeue(struct oes_client *ec)
 	if (ep != NULL) {
 		TAILQ_REMOVE(&ec->ec_pending, ep, ep_link);
 		ec->ec_queue_count--;
+		if (ec->ec_queue_bytes >= ep->ep_msg.em_size)
+			ec->ec_queue_bytes -= ep->ep_msg.em_size;
+		else
+			ec->ec_queue_bytes = 0;
 		ep->ep_flags |= EP_FLAG_DELIVERED;
-		/* Reference transferred to caller */
 	}
 
 	return (ep);
@@ -485,13 +736,15 @@ oes_event_respond_internal(struct oes_client *ec, uint64_t msg_id,
 				SDT_PROBE3(oes, , , auth__allow,
 				    ep->ep_msg.em_event,
 				    ep->ep_msg.em_process.ep_pid,
-				    ep->ep_msg.em_process.ep_path);
+				    oes_msg_string(&ep->ep_msg,
+				    ep->ep_msg.em_process.ep_path_off));
 			} else {
 				ec->ec_auth_denied++;
 				SDT_PROBE3(oes, , , auth__deny,
 				    ep->ep_msg.em_event,
 				    ep->ep_msg.em_process.ep_pid,
-				    ep->ep_msg.em_process.ep_path);
+				    oes_msg_string(&ep->ep_msg,
+				    ep->ep_msg.em_process.ep_path_off));
 			}
 
 			if (ep->ep_group != NULL)
@@ -523,7 +776,6 @@ int
 oes_event_respond(struct oes_client *ec, uint64_t msg_id,
     oes_auth_result_t result)
 {
-
 	return (oes_event_respond_internal(ec, msg_id, result, 0, 0, false));
 }
 
@@ -534,7 +786,6 @@ int
 oes_event_respond_flags(struct oes_client *ec, uint64_t msg_id,
     oes_auth_result_t result, uint32_t allowed_flags, uint32_t denied_flags)
 {
-
 	return (oes_event_respond_internal(ec, msg_id, result, allowed_flags,
 	    denied_flags, true));
 }
@@ -577,6 +828,12 @@ oes_event_handle_timeout(struct oes_pending *ep)
 					TAILQ_REMOVE(&ec->ec_pending, ep,
 					    ep_link);
 					ec->ec_queue_count--;
+					if (ec->ec_queue_bytes >=
+					    ep->ep_msg.em_size)
+						ec->ec_queue_bytes -=
+						    ep->ep_msg.em_size;
+					else
+						ec->ec_queue_bytes = 0;
 					need_rele = true;
 					break;
 				}

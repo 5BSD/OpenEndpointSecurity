@@ -18,7 +18,8 @@ test_extattr_set_get(void)
 		OES_EVENT_NOTIFY_SETEXTATTR,
 		OES_EVENT_NOTIFY_GETEXTATTR,
 	};
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	const char *attrname = "test_attr";
 	const char *attrval = "test_value";
 	char buf[64];
@@ -84,10 +85,10 @@ test_extattr_set_get(void)
 
 	/* Check for events */
 	for (int i = 0; i < 4; i++) {
-		if (test_wait_event(fd, &msg, 500) == 0) {
-			if (msg.em_event == OES_EVENT_NOTIFY_SETEXTATTR)
+		if (test_wait_event(fd, msg, 500) == 0) {
+			if (msg->em_event == OES_EVENT_NOTIFY_SETEXTATTR)
 				got_set = 1;
-			else if (msg.em_event == OES_EVENT_NOTIFY_GETEXTATTR)
+			else if (msg->em_event == OES_EVENT_NOTIFY_GETEXTATTR)
 				got_get = 1;
 		}
 	}
@@ -110,7 +111,8 @@ test_extattr_delete_list(void)
 		OES_EVENT_NOTIFY_DELETEEXTATTR,
 		OES_EVENT_NOTIFY_LISTEXTATTR,
 	};
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	const char *attrname = "test_attr2";
 	const char *attrval = "test_value2";
 	char buf[256];
@@ -185,10 +187,10 @@ test_extattr_delete_list(void)
 
 	/* Check for events */
 	for (int i = 0; i < 4; i++) {
-		if (test_wait_event(fd, &msg, 500) == 0) {
-			if (msg.em_event == OES_EVENT_NOTIFY_DELETEEXTATTR)
+		if (test_wait_event(fd, msg, 500) == 0) {
+			if (msg->em_event == OES_EVENT_NOTIFY_DELETEEXTATTR)
 				got_delete = 1;
-			else if (msg.em_event == OES_EVENT_NOTIFY_LISTEXTATTR)
+			else if (msg->em_event == OES_EVENT_NOTIFY_LISTEXTATTR)
 				got_list = 1;
 		}
 	}
@@ -211,7 +213,8 @@ test_acl_get_set(void)
 		OES_EVENT_NOTIFY_GETACL,
 		OES_EVENT_NOTIFY_SETACL,
 	};
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	acl_t acl;
 	acl_type_t acl_type = ACL_TYPE_ACCESS;
 	int got_get = 0, got_set = 0;
@@ -280,10 +283,10 @@ test_acl_get_set(void)
 
 	/* Check for events */
 	for (int i = 0; i < 4; i++) {
-		if (test_wait_event(fd, &msg, 500) == 0) {
-			if (msg.em_event == OES_EVENT_NOTIFY_GETACL)
+		if (test_wait_event(fd, msg, 500) == 0) {
+			if (msg->em_event == OES_EVENT_NOTIFY_GETACL)
 				got_get = 1;
-			else if (msg.em_event == OES_EVENT_NOTIFY_SETACL)
+			else if (msg->em_event == OES_EVENT_NOTIFY_SETACL)
 				got_set = 1;
 		}
 	}
@@ -305,7 +308,8 @@ test_acl_delete(void)
 	oes_event_type_t events[] = {
 		OES_EVENT_NOTIFY_DELETEACL,
 	};
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	int got_delete = 0;
 
 	TEST_BEGIN("ACL delete event");
@@ -347,8 +351,8 @@ test_acl_delete(void)
 
 	/* Check for events */
 	for (int i = 0; i < 2; i++) {
-		if (test_wait_event(fd, &msg, 500) == 0) {
-			if (msg.em_event == OES_EVENT_NOTIFY_DELETEACL)
+		if (test_wait_event(fd, msg, 500) == 0) {
+			if (msg->em_event == OES_EVENT_NOTIFY_DELETEACL)
 				got_delete = 1;
 		}
 	}

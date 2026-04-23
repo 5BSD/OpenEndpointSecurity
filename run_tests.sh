@@ -68,7 +68,7 @@ fi
 
 if [ -d tests ]; then
     echo "=== Building unit tests ==="
-    make -C tests CFLAGS="-Wall -Wextra -I$ROOT_DIR/sys" clean all
+    make -C tests clean all
     if [ $? -ne 0 ]; then
         printf "${RED}FAILED to compile unit tests${NC}\n"
         exit 1

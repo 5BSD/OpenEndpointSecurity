@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include <security/oes/oes.h>
+#include "test_common.h"
 
 static volatile sig_atomic_t alarm_fired = 0;
 
@@ -156,7 +157,8 @@ test_deadline_field(void)
 	struct oes_mode_args mode;
 	struct oes_subscribe_args sub;
 	oes_event_type_t events[] = { OES_EVENT_AUTH_EXEC };
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	struct pollfd pfd;
 	pid_t pid;
 	ssize_t n;
@@ -208,23 +210,23 @@ test_deadline_field(void)
 	pfd.events = POLLIN;
 
 	if (poll(&pfd, 1, 2000) > 0 && (pfd.revents & POLLIN)) {
-		n = read(fd, &msg, sizeof(msg));
-		if (n == sizeof(msg)) {
+		n = read(fd, msg, OES_MSG_MAX_SIZE);
+		if (n >= (ssize_t)sizeof(oes_message_t)) {
 			oes_response_t resp;
 
 			clock_gettime(CLOCK_MONOTONIC, &now);
 
 			/* Check deadline is in the future */
-			if (msg.em_deadline.tv_sec > now.tv_sec ||
-			    (msg.em_deadline.tv_sec == now.tv_sec &&
-			     msg.em_deadline.tv_nsec > now.tv_nsec)) {
+			if (msg->em_deadline.tv_sec > now.tv_sec ||
+			    (msg->em_deadline.tv_sec == now.tv_sec &&
+			     msg->em_deadline.tv_nsec > now.tv_nsec)) {
 				printf("    INFO: deadline is %ld.%09ld (now=%ld.%09ld)\n",
-				    (long)msg.em_deadline.tv_sec,
-				    msg.em_deadline.tv_nsec,
+				    (long)msg->em_deadline.tv_sec,
+				    msg->em_deadline.tv_nsec,
 				    (long)now.tv_sec, now.tv_nsec);
 				found_event = 1;
-			} else if (msg.em_deadline.tv_sec == 0 &&
-			    msg.em_deadline.tv_nsec == 0) {
+			} else if (msg->em_deadline.tv_sec == 0 &&
+			    msg->em_deadline.tv_nsec == 0) {
 				printf("    INFO: deadline is zero (no timeout?)\n");
 				found_event = 1;
 			} else {
@@ -234,7 +236,7 @@ test_deadline_field(void)
 
 			/* Respond to allow the exec */
 			memset(&resp, 0, sizeof(resp));
-			resp.er_id = msg.em_id;
+			resp.er_id = msg->em_id;
 			resp.er_result = OES_AUTH_ALLOW;
 			(void)write(fd, &resp, sizeof(resp));
 		}
@@ -264,7 +266,8 @@ test_late_response(void)
 	struct oes_subscribe_args sub;
 	struct oes_timeout_action_args action;
 	oes_event_type_t events[] = { OES_EVENT_AUTH_OPEN };
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	struct pollfd pfd;
 	pid_t pid;
 	ssize_t n;
@@ -326,8 +329,8 @@ test_late_response(void)
 	pfd.events = POLLIN;
 
 	if (poll(&pfd, 1, 2000) > 0 && (pfd.revents & POLLIN)) {
-		n = read(fd, &msg, sizeof(msg));
-		if (n == sizeof(msg) && msg.em_process.ep_pid == pid) {
+		n = read(fd, msg, OES_MSG_MAX_SIZE);
+		if (n >= (ssize_t)sizeof(oes_message_t) && msg->em_process.ep_pid == pid) {
 			oes_response_t resp;
 
 			printf("    INFO: got AUTH event, NOT responding immediately\n");
@@ -348,7 +351,7 @@ test_late_response(void)
 
 			/* Try to respond now (should be too late or ignored) */
 			memset(&resp, 0, sizeof(resp));
-			resp.er_id = msg.em_id;
+			resp.er_id = msg->em_id;
 			resp.er_result = OES_AUTH_ALLOW;
 			n = write(fd, &resp, sizeof(resp));
 			if (n < 0) {
@@ -381,7 +384,8 @@ test_wrong_message_id(void)
 	struct oes_mode_args mode;
 	struct oes_subscribe_args sub;
 	oes_event_type_t events[] = { OES_EVENT_AUTH_EXEC };
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	oes_response_t resp;
 	struct pollfd pfd;
 	pid_t pid;
@@ -430,11 +434,11 @@ test_wrong_message_id(void)
 	pfd.events = POLLIN;
 
 	if (poll(&pfd, 1, 2000) > 0 && (pfd.revents & POLLIN)) {
-		n = read(fd, &msg, sizeof(msg));
-		if (n == sizeof(msg)) {
+		n = read(fd, msg, OES_MSG_MAX_SIZE);
+		if (n >= (ssize_t)sizeof(oes_message_t)) {
 			/* Try response with wrong ID */
 			memset(&resp, 0, sizeof(resp));
-			resp.er_id = msg.em_id + 12345;  /* Wrong ID */
+			resp.er_id = msg->em_id + 12345;  /* Wrong ID */
 			resp.er_result = OES_AUTH_ALLOW;
 
 			n = write(fd, &resp, sizeof(resp));
@@ -446,7 +450,7 @@ test_wrong_message_id(void)
 			}
 
 			/* Now send correct response */
-			resp.er_id = msg.em_id;
+			resp.er_id = msg->em_id;
 			(void)write(fd, &resp, sizeof(resp));
 		}
 	}
@@ -466,7 +470,8 @@ test_duplicate_response(void)
 	struct oes_mode_args mode;
 	struct oes_subscribe_args sub;
 	oes_event_type_t events[] = { OES_EVENT_AUTH_EXEC };
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	oes_response_t resp;
 	struct pollfd pfd;
 	pid_t pid;
@@ -514,10 +519,10 @@ test_duplicate_response(void)
 	pfd.events = POLLIN;
 
 	if (poll(&pfd, 1, 2000) > 0 && (pfd.revents & POLLIN)) {
-		n = read(fd, &msg, sizeof(msg));
-		if (n == sizeof(msg)) {
+		n = read(fd, msg, OES_MSG_MAX_SIZE);
+		if (n >= (ssize_t)sizeof(oes_message_t)) {
 			memset(&resp, 0, sizeof(resp));
-			resp.er_id = msg.em_id;
+			resp.er_id = msg->em_id;
 			resp.er_result = OES_AUTH_ALLOW;
 
 			/* First response */
@@ -552,7 +557,8 @@ test_invalid_result_code(void)
 	struct oes_mode_args mode;
 	struct oes_subscribe_args sub;
 	oes_event_type_t events[] = { OES_EVENT_AUTH_EXEC };
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	oes_response_t resp;
 	struct pollfd pfd;
 	pid_t pid;
@@ -600,10 +606,10 @@ test_invalid_result_code(void)
 	pfd.events = POLLIN;
 
 	if (poll(&pfd, 1, 2000) > 0 && (pfd.revents & POLLIN)) {
-		n = read(fd, &msg, sizeof(msg));
-		if (n == sizeof(msg)) {
+		n = read(fd, msg, OES_MSG_MAX_SIZE);
+		if (n >= (ssize_t)sizeof(oes_message_t)) {
 			memset(&resp, 0, sizeof(resp));
-			resp.er_id = msg.em_id;
+			resp.er_id = msg->em_id;
 			resp.er_result = 0xBADBAD;  /* Invalid result */
 
 			n = write(fd, &resp, sizeof(resp));

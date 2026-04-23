@@ -20,6 +20,7 @@
 #include <unistd.h>
 
 #include <security/oes/oes.h>
+#include "test_common.h"
 
 #define TEST_MOUNTPOINT	"/tmp/oes_test_mount"
 #define TEST_MDFILE	"/tmp/oes_test_md"
@@ -27,28 +28,19 @@
 static int
 read_events(int fd, int *unmount_seen, const char *expected_path)
 {
-	oes_message_t msg;
-	ssize_t n;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 
 	for (;;) {
-		n = read(fd, &msg, sizeof(msg));
-		if (n < 0) {
-			if (errno == EAGAIN || errno == EWOULDBLOCK)
-				return (0);
-			perror("read");
-			return (-1);
-		}
-		if (n == 0)
+		if (test_wait_event(fd, msg, 10) != 0)
 			return (0);
-		if ((size_t)n != sizeof(msg))
-			continue;
 
-		if (msg.em_event == OES_EVENT_NOTIFY_UNMOUNT) {
+		if (msg->em_event == OES_EVENT_NOTIFY_UNMOUNT) {
 			fprintf(stderr, "  got NOTIFY_UNMOUNT: mountpoint=%s fstype=%s\n",
-			    msg.em_event_data.unmount.mountpoint.ef_path,
-			    msg.em_event_data.unmount.fstype);
+			    oes_msg_string(msg, msg->em_event_data.unmount.mountpoint.ef_path_off),
+			    msg->em_event_data.unmount.fstype);
 			if (expected_path != NULL &&
-			    strstr(msg.em_event_data.unmount.mountpoint.ef_path,
+			    strstr(oes_msg_string(msg, msg->em_event_data.unmount.mountpoint.ef_path_off),
 			    expected_path) != NULL) {
 				*unmount_seen = 1;
 			} else if (expected_path == NULL) {

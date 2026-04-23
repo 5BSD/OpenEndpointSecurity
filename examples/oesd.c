@@ -255,10 +255,11 @@ main(int argc, char *argv[])
 
 		for (int i = 0; i < n; i++) {
 			if ((int)kev[i].ident == oes_fd) {
-				/* OES event available */
-				oes_message_t msg;
-				if (oes_read_event(client, &msg, false) == 0) {
-					event_handler(client, &msg, NULL);
+				/* OES event available - drain batch */
+				const oes_message_t *msg;
+				while (oes_read_event(client, &msg,
+				    false) == 0) {
+					event_handler(client, msg, NULL);
 				}
 			} else if ((int)kev[i].ident == listen_sock) {
 				/* New client connection */

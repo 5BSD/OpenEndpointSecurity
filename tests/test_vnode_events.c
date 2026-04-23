@@ -20,6 +20,7 @@
 #include <unistd.h>
 
 #include <security/oes/oes.h>
+#include "test_common.h"
 
 #define EVT_OPEN		(1u << 0)
 #define EVT_CREATE		(1u << 1)
@@ -50,26 +51,17 @@
 static int
 read_events(int fd, pid_t child_pid, uint64_t *seen_mask)
 {
-	oes_message_t msg;
-	ssize_t n;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 
 	for (;;) {
-		n = read(fd, &msg, sizeof(msg));
-		if (n < 0) {
-			if (errno == EAGAIN || errno == EWOULDBLOCK)
-				return (0);
-			perror("read");
-			return (-1);
-		}
-		if (n == 0)
+		if (test_wait_event(fd, msg, 10) != 0)
 			return (0);
-		if ((size_t)n != sizeof(msg))
+
+		if (msg->em_process.ep_pid != child_pid)
 			continue;
 
-		if (msg.em_process.ep_pid != child_pid)
-			continue;
-
-		switch (msg.em_event) {
+		switch (msg->em_event) {
 		case OES_EVENT_NOTIFY_OPEN:
 			*seen_mask |= EVT_OPEN;
 			break;

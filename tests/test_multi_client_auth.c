@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include <security/oes/oes.h>
+#include "test_common.h"
 
 #define RESP_NONE 2
 
@@ -38,24 +39,25 @@ wait_for_auth_open(int fd, pid_t pid, int timeout_ms, oes_message_t *out)
 			break;
 
 		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			oes_message_t msg;
-			ssize_t n = read(fd, &msg, sizeof(msg));
+			test_msg_buf _buf;
+			oes_message_t *msg = &_buf.msg;
+			ssize_t n = read(fd, msg, OES_MSG_MAX_SIZE);
 			if (n < 0) {
 				if (errno == EAGAIN || errno == EWOULDBLOCK)
 					continue;
 				perror("read");
 				return (-1);
 			}
-			if ((size_t)n != sizeof(msg))
+			if (n < (ssize_t)sizeof(oes_message_t))
 				continue;
-			if (msg.em_event != OES_EVENT_AUTH_OPEN)
+			if (msg->em_event != OES_EVENT_AUTH_OPEN)
 				continue;
-			if (msg.em_action != OES_ACTION_AUTH)
+			if (msg->em_action != OES_ACTION_AUTH)
 				continue;
-			if (msg.em_process.ep_pid != pid)
+			if (msg->em_process.ep_pid != pid)
 				continue;
 			if (out != NULL)
-				*out = msg;
+				*out = *msg;
 			return (0);
 		}
 	}
@@ -121,8 +123,10 @@ run_scenario(const char *name, oes_auth_result_t r1, oes_auth_result_t r2,
 	int ctl_pipe[2];
 	int res_pipe[2];
 	pid_t child;
-	oes_message_t msg1;
-	oes_message_t msg2;
+	test_msg_buf _msg1_buf;
+	oes_message_t *msg1 = &_msg1_buf.msg;
+	test_msg_buf _msg2_buf;
+	oes_message_t *msg2 = &_msg2_buf.msg;
 	oes_response_t resp;
 	int err = 0;
 	int status;
@@ -173,14 +177,14 @@ run_scenario(const char *name, oes_auth_result_t r1, oes_auth_result_t r2,
 
 	(void)write(ctl_pipe[1], &cmd, 1);
 
-	if (wait_for_auth_open(fd1, child, 2000, &msg1) != 0 ||
-	    wait_for_auth_open(fd2, child, 2000, &msg2) != 0) {
+	if (wait_for_auth_open(fd1, child, 2000, msg1) != 0 ||
+	    wait_for_auth_open(fd2, child, 2000, msg2) != 0) {
 		fprintf(stderr, "%s: missing AUTH open event\n", name);
 		goto fail;
 	}
 
 	memset(&resp, 0, sizeof(resp));
-	resp.er_id = msg1.em_id;
+	resp.er_id = msg1->em_id;
 	resp.er_result = r1;
 	if (write(fd1, &resp, sizeof(resp)) != (ssize_t)sizeof(resp)) {
 		fprintf(stderr, "%s: failed to respond fd1\n", name);
@@ -191,7 +195,7 @@ run_scenario(const char *name, oes_auth_result_t r1, oes_auth_result_t r2,
 		/* No response for fd2 (timeout scenario). */
 	} else {
 		memset(&resp, 0, sizeof(resp));
-		resp.er_id = msg2.em_id;
+		resp.er_id = msg2->em_id;
 		resp.er_result = r2;
 		if (write(fd2, &resp, sizeof(resp)) != (ssize_t)sizeof(resp)) {
 			fprintf(stderr, "%s: failed to respond fd2\n", name);

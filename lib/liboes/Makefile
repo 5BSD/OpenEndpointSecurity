@@ -1,7 +1,7 @@
 # $FreeBSD$
 
 LIB=		oes
-SHLIB_MAJOR=	1
+SHLIB_MAJOR=	2
 SRCS=		liboes.c
 
 INCS=		liboes.h

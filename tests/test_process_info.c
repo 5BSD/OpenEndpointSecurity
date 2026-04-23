@@ -18,22 +18,21 @@
 #include <unistd.h>
 
 #include <security/oes/oes.h>
+#include "test_common.h"
 
 static int
 read_fork_event(int fd, oes_message_t *out_msg)
 {
-	oes_message_t msg;
-	ssize_t n;
-	struct pollfd pfd;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	struct timespec start;
 
 	clock_gettime(CLOCK_MONOTONIC, &start);
-	pfd.fd = fd;
-	pfd.events = POLLIN;
 
 	while (1) {
 		struct timespec now;
 		long elapsed_ms;
+		int remaining;
 
 		clock_gettime(CLOCK_MONOTONIC, &now);
 		elapsed_ms = (now.tv_sec - start.tv_sec) * 1000L +
@@ -41,14 +40,17 @@ read_fork_event(int fd, oes_message_t *out_msg)
 		if (elapsed_ms > 2000)
 			break;
 
-		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			n = read(fd, &msg, sizeof(msg));
-			if (n == sizeof(msg) &&
-			    msg.em_event == OES_EVENT_NOTIFY_FORK) {
-				*out_msg = msg;
-				return (0);
-			}
-		}
+		remaining = 2000 - (int)elapsed_ms;
+		if (remaining > 100)
+			remaining = 100;
+
+		if (test_wait_event(fd, msg, remaining) != 0)
+			continue;
+		if (msg->em_event != OES_EVENT_NOTIFY_FORK)
+			continue;
+
+		*out_msg = *msg;
+		return (0);
 	}
 	return (-1);
 }
@@ -62,7 +64,8 @@ main(void)
 	oes_event_type_t events[] = {
 		OES_EVENT_NOTIFY_FORK,
 	};
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	pid_t child, mypid;
 	int status;
 	int errors = 0;
@@ -122,7 +125,7 @@ main(void)
 	}
 
 	/* Parent - wait for fork event */
-	if (read_fork_event(fd, &msg) < 0) {
+	if (read_fork_event(fd, msg) < 0) {
 		fprintf(stderr, "FAIL: no FORK event received\n");
 		waitpid(child, &status, 0);
 		close(fd);
@@ -133,7 +136,7 @@ main(void)
 	close(fd);
 
 	/* Verify child info from fork event */
-	oes_process_t *proc = &msg.em_event_data.fork.child;
+	oes_process_t *proc = &msg->em_event_data.fork.child;
 
 	printf("  Child PID: %d (expected around %d)\n", proc->ep_pid, child);
 	printf("  Parent PID: %d (expected %d)\n", proc->ep_ppid, mypid);

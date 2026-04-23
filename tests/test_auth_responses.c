@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include <security/oes/oes.h>
+#include "test_common.h"
 
 /*
  * Test basic AUTH ALLOW response.
@@ -29,7 +30,8 @@ test_auth_allow(void)
 	struct oes_mode_args mode;
 	struct oes_subscribe_args sub;
 	oes_event_type_t events[] = { OES_EVENT_AUTH_EXEC };
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	oes_response_t resp;
 	struct pollfd pfd;
 	pid_t pid;
@@ -78,10 +80,10 @@ test_auth_allow(void)
 	pfd.events = POLLIN;
 
 	if (poll(&pfd, 1, 3000) > 0 && (pfd.revents & POLLIN)) {
-		n = read(fd, &msg, sizeof(msg));
-		if (n == sizeof(msg) && msg.em_event == OES_EVENT_AUTH_EXEC) {
+		n = read(fd, msg, OES_MSG_MAX_SIZE);
+		if (n >= (ssize_t)sizeof(oes_message_t) && msg->em_event == OES_EVENT_AUTH_EXEC) {
 			memset(&resp, 0, sizeof(resp));
-			resp.er_id = msg.em_id;
+			resp.er_id = msg->em_id;
 			resp.er_result = OES_AUTH_ALLOW;
 
 			n = write(fd, &resp, sizeof(resp));
@@ -116,7 +118,8 @@ test_auth_deny(void)
 	struct oes_mode_args mode;
 	struct oes_subscribe_args sub;
 	oes_event_type_t events[] = { OES_EVENT_AUTH_EXEC };
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	oes_response_t resp;
 	struct pollfd pfd;
 	pid_t pid;
@@ -167,10 +170,10 @@ test_auth_deny(void)
 	pfd.events = POLLIN;
 
 	if (poll(&pfd, 1, 3000) > 0 && (pfd.revents & POLLIN)) {
-		n = read(fd, &msg, sizeof(msg));
-		if (n == sizeof(msg) && msg.em_event == OES_EVENT_AUTH_EXEC) {
+		n = read(fd, msg, OES_MSG_MAX_SIZE);
+		if (n >= (ssize_t)sizeof(oes_message_t) && msg->em_event == OES_EVENT_AUTH_EXEC) {
 			memset(&resp, 0, sizeof(resp));
-			resp.er_id = msg.em_id;
+			resp.er_id = msg->em_id;
 			resp.er_result = OES_AUTH_DENY;
 
 			n = write(fd, &resp, sizeof(resp));
@@ -202,7 +205,8 @@ test_auth_flags_response(void)
 	struct oes_mode_args mode;
 	struct oes_subscribe_args sub;
 	oes_event_type_t events[] = { OES_EVENT_AUTH_OPEN };
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	oes_response_flags_t resp;
 	struct pollfd pfd;
 	pid_t pid;
@@ -257,11 +261,11 @@ test_auth_flags_response(void)
 	pfd.events = POLLIN;
 
 	if (poll(&pfd, 1, 3000) > 0 && (pfd.revents & POLLIN)) {
-		n = read(fd, &msg, sizeof(msg));
-		if (n == sizeof(msg) && msg.em_event == OES_EVENT_AUTH_OPEN) {
+		n = read(fd, msg, OES_MSG_MAX_SIZE);
+		if (n >= (ssize_t)sizeof(oes_message_t) && msg->em_event == OES_EVENT_AUTH_OPEN) {
 			/* Respond with flags - allow only read */
 			memset(&resp, 0, sizeof(resp));
-			resp.erf_id = msg.em_id;
+			resp.erf_id = msg->em_id;
 			resp.erf_result = OES_AUTH_ALLOW;
 			resp.erf_allowed_flags = O_RDONLY;
 			resp.erf_denied_flags = O_WRONLY | O_RDWR;
@@ -273,7 +277,7 @@ test_auth_flags_response(void)
 				/* Fall back to simple response */
 				oes_response_t simple;
 				memset(&simple, 0, sizeof(simple));
-				simple.er_id = msg.em_id;
+				simple.er_id = msg->em_id;
 				simple.er_result = OES_AUTH_ALLOW;
 				(void)write(fd, &simple, sizeof(simple));
 			}
@@ -297,7 +301,7 @@ test_out_of_order_responses(void)
 	struct oes_mode_args mode;
 	struct oes_subscribe_args sub;
 	oes_event_type_t events[] = { OES_EVENT_AUTH_OPEN };
-	oes_message_t msgs[3];
+	test_msg_buf _msgs_bufs[3];
 	oes_response_t resp;
 	struct pollfd pfd;
 	pid_t pids[3];
@@ -357,8 +361,8 @@ test_out_of_order_responses(void)
 		if (!(pfd.revents & POLLIN))
 			break;
 
-		ssize_t n = read(fd, &msgs[msg_count], sizeof(msgs[0]));
-		if (n == sizeof(msgs[0]))
+		ssize_t n = read(fd, &_msgs_bufs[msg_count].msg, OES_MSG_MAX_SIZE);
+		if (n >= (ssize_t)sizeof(oes_message_t))
 			msg_count++;
 	}
 
@@ -367,7 +371,7 @@ test_out_of_order_responses(void)
 	/* Respond in reverse order */
 	for (i = msg_count - 1; i >= 0; i--) {
 		memset(&resp, 0, sizeof(resp));
-		resp.er_id = msgs[i].em_id;
+		resp.er_id = _msgs_bufs[i].msg.em_id;
 		resp.er_result = OES_AUTH_ALLOW;
 		(void)write(fd, &resp, sizeof(resp));
 	}
@@ -529,12 +533,13 @@ test_rapid_auth_cycling(void)
 
 		/* Handle AUTH events */
 		while (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			oes_message_t msg;
-			ssize_t n = read(fd, &msg, sizeof(msg));
-			if (n == sizeof(msg)) {
+			test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
+			ssize_t n = read(fd, msg, OES_MSG_MAX_SIZE);
+			if (n >= (ssize_t)sizeof(oes_message_t)) {
 				oes_response_t resp;
 				memset(&resp, 0, sizeof(resp));
-				resp.er_id = msg.em_id;
+				resp.er_id = msg->em_id;
 				resp.er_result = OES_AUTH_ALLOW;
 				if (write(fd, &resp, sizeof(resp)) == sizeof(resp))
 					responded++;
@@ -620,7 +625,8 @@ auth_handler_thread(void *arg)
 {
 	struct auth_thread_args *ta = arg;
 	struct pollfd pfd;
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	oes_response_t resp;
 
 	pfd.fd = ta->fd;
@@ -633,18 +639,18 @@ auth_handler_thread(void *arg)
 		if (!(pfd.revents & POLLIN))
 			continue;
 
-		ssize_t n = read(ta->fd, &msg, sizeof(msg));
+		ssize_t n = read(ta->fd, msg, OES_MSG_MAX_SIZE);
 		if (n < 0) {
 			if (errno == EAGAIN)
 				continue;
 			ta->errors++;
 			break;
 		}
-		if (n != sizeof(msg))
+		if (n < (ssize_t)sizeof(oes_message_t))
 			continue;
 
 		memset(&resp, 0, sizeof(resp));
-		resp.er_id = msg.em_id;
+		resp.er_id = msg->em_id;
 		resp.er_result = OES_AUTH_ALLOW;
 
 		if (write(ta->fd, &resp, sizeof(resp)) == sizeof(resp))

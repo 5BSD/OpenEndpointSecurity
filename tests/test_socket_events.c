@@ -20,6 +20,7 @@
 #include <unistd.h>
 
 #include <security/oes/oes.h>
+#include "test_common.h"
 
 #define TEST_PORT	54321
 #define TEST_SOCKET	"/tmp/oes_test.sock"
@@ -28,26 +29,17 @@ static int
 read_socket_events(int fd, pid_t child_pid, int *connect_seen, int *bind_seen,
     int *listen_seen)
 {
-	oes_message_t msg;
-	ssize_t n;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 
 	for (;;) {
-		n = read(fd, &msg, sizeof(msg));
-		if (n < 0) {
-			if (errno == EAGAIN || errno == EWOULDBLOCK)
-				return (0);
-			perror("read");
-			return (-1);
-		}
-		if (n == 0)
+		if (test_wait_event(fd, msg, 10) != 0)
 			return (0);
-		if ((size_t)n != sizeof(msg))
+
+		if (msg->em_process.ep_pid != child_pid)
 			continue;
 
-		if (msg.em_process.ep_pid != child_pid)
-			continue;
-
-		switch (msg.em_event) {
+		switch (msg->em_event) {
 		case OES_EVENT_NOTIFY_SOCKET_CONNECT:
 			*connect_seen = 1;
 			fprintf(stderr, "  got NOTIFY_SOCKET_CONNECT\n");

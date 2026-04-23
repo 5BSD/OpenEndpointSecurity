@@ -114,6 +114,8 @@ struct oes_client {
 	TAILQ_HEAD(, oes_pending) ec_delivered;	/* Delivered AUTH events */
 	uint32_t		ec_queue_count;	/* Current queue depth */
 	uint32_t		ec_queue_max;	/* Max queue size */
+	uint32_t		ec_queue_bytes;	/* Current queued bytes */
+	uint32_t		ec_queue_highwater; /* Peak queue depth */
 	struct selinfo		ec_selinfo;	/* For poll/select/kqueue */
 
 	/* Process muting (hash table by pid) */
@@ -163,11 +165,26 @@ struct oes_client {
 #define EC_LOCK_ASSERT(ec)	mtx_assert(&(ec)->ec_mtx, MA_OWNED)
 
 /*
+ * String table builder for variable-length message construction.
+ *
+ * Strings are appended after sizeof(oes_message_t) in the same
+ * allocation as oes_pending.  Offsets are relative to the start
+ * of oes_message_t.
+ */
+struct oes_strtab {
+	uint32_t	st_off;		/* Next write offset (from msg start) */
+	uint32_t	st_max;		/* Max message size */
+};
+
+/*
  * Pending event (in client queue)
+ *
+ * Variable-size: the allocation extends past ep_msg to hold the
+ * string table.  ep_msg.em_size records the total message size.
+ * ep_msg MUST be the last field.
  */
 struct oes_pending {
 	TAILQ_ENTRY(oes_pending) ep_link;	/* Link in client queue */
-	oes_message_t		ep_msg;		/* The message */
 	uint32_t		ep_flags;	/* EP_FLAG_* */
 	int			ep_refcount;	/* Reference count */
 	uint64_t		ep_client_id;	/* AUTH client ID */
@@ -182,6 +199,9 @@ struct oes_pending {
 	uint32_t		ep_denied_flags;  /* Flags-based: denied flags */
 	struct timespec		ep_deadline;	/* Absolute deadline */
 	struct oes_auth_group	*ep_group;	/* AUTH arbitration group */
+
+	/* Variable-length message - MUST be last */
+	oes_message_t		ep_msg;
 };
 
 /* Pending event flags */
@@ -289,125 +309,10 @@ oes_client_unsubscribe_all(struct oes_client *ec)
 }
 
 /*
- * Validate that an event type is a defined enum value, not just
- * a value that passes the AUTH/NOTIFY bit test and bit < 128 range.
+ * Validate that an event type is a defined enum value.
+ * Defined in oes_event.c to avoid duplicating 100+ lines per TU.
  */
-static __inline bool
-oes_event_is_valid(oes_event_type_t ev)
-{
-	if (OES_EVENT_IS_AUTH(ev)) {
-		switch (ev) {
-		case OES_EVENT_AUTH_EXEC:
-		case OES_EVENT_AUTH_OPEN:
-		case OES_EVENT_AUTH_CREATE:
-		case OES_EVENT_AUTH_UNLINK:
-		case OES_EVENT_AUTH_RENAME:
-		case OES_EVENT_AUTH_LINK:
-		case OES_EVENT_AUTH_MOUNT:
-		case OES_EVENT_AUTH_KLDLOAD:
-		case OES_EVENT_AUTH_MMAP:
-		case OES_EVENT_AUTH_MPROTECT:
-		case OES_EVENT_AUTH_CHDIR:
-		case OES_EVENT_AUTH_CHROOT:
-		case OES_EVENT_AUTH_SETEXTATTR:
-		case OES_EVENT_AUTH_PTRACE:
-		case OES_EVENT_AUTH_ACCESS:
-		case OES_EVENT_AUTH_READ:
-		case OES_EVENT_AUTH_WRITE:
-		case OES_EVENT_AUTH_LOOKUP:
-		case OES_EVENT_AUTH_SETMODE:
-		case OES_EVENT_AUTH_SETOWNER:
-		case OES_EVENT_AUTH_SETFLAGS:
-		case OES_EVENT_AUTH_SETUTIMES:
-		case OES_EVENT_AUTH_STAT:
-		case OES_EVENT_AUTH_POLL:
-		case OES_EVENT_AUTH_REVOKE:
-		case OES_EVENT_AUTH_READDIR:
-		case OES_EVENT_AUTH_READLINK:
-		case OES_EVENT_AUTH_GETEXTATTR:
-		case OES_EVENT_AUTH_DELETEEXTATTR:
-		case OES_EVENT_AUTH_LISTEXTATTR:
-		case OES_EVENT_AUTH_GETACL:
-		case OES_EVENT_AUTH_SETACL:
-		case OES_EVENT_AUTH_DELETEACL:
-		case OES_EVENT_AUTH_RELABEL:
-		case OES_EVENT_AUTH_SWAPON:
-		case OES_EVENT_AUTH_SWAPOFF:
-			return (true);
-		default:
-			return (false);
-		}
-	}
-
-	switch (ev) {
-	case OES_EVENT_NOTIFY_EXEC:
-	case OES_EVENT_NOTIFY_EXIT:
-	case OES_EVENT_NOTIFY_FORK:
-	case OES_EVENT_NOTIFY_OPEN:
-	case OES_EVENT_NOTIFY_CREATE:
-	case OES_EVENT_NOTIFY_UNLINK:
-	case OES_EVENT_NOTIFY_RENAME:
-	case OES_EVENT_NOTIFY_MOUNT:
-	case OES_EVENT_NOTIFY_KLDLOAD:
-	case OES_EVENT_NOTIFY_SIGNAL:
-	case OES_EVENT_NOTIFY_PTRACE:
-	case OES_EVENT_NOTIFY_SETUID:
-	case OES_EVENT_NOTIFY_SETGID:
-	case OES_EVENT_NOTIFY_ACCESS:
-	case OES_EVENT_NOTIFY_READ:
-	case OES_EVENT_NOTIFY_WRITE:
-	case OES_EVENT_NOTIFY_LOOKUP:
-	case OES_EVENT_NOTIFY_SETMODE:
-	case OES_EVENT_NOTIFY_SETOWNER:
-	case OES_EVENT_NOTIFY_SETFLAGS:
-	case OES_EVENT_NOTIFY_SETUTIMES:
-	case OES_EVENT_NOTIFY_STAT:
-	case OES_EVENT_NOTIFY_POLL:
-	case OES_EVENT_NOTIFY_REVOKE:
-	case OES_EVENT_NOTIFY_READDIR:
-	case OES_EVENT_NOTIFY_READLINK:
-	case OES_EVENT_NOTIFY_GETEXTATTR:
-	case OES_EVENT_NOTIFY_DELETEEXTATTR:
-	case OES_EVENT_NOTIFY_LISTEXTATTR:
-	case OES_EVENT_NOTIFY_GETACL:
-	case OES_EVENT_NOTIFY_SETACL:
-	case OES_EVENT_NOTIFY_DELETEACL:
-	case OES_EVENT_NOTIFY_RELABEL:
-	case OES_EVENT_NOTIFY_SETEXTATTR:
-	case OES_EVENT_NOTIFY_SOCKET_CONNECT:
-	case OES_EVENT_NOTIFY_SOCKET_BIND:
-	case OES_EVENT_NOTIFY_SOCKET_LISTEN:
-	case OES_EVENT_NOTIFY_REBOOT:
-	case OES_EVENT_NOTIFY_SYSCTL:
-	case OES_EVENT_NOTIFY_KENV:
-	case OES_EVENT_NOTIFY_SWAPON:
-	case OES_EVENT_NOTIFY_SWAPOFF:
-	case OES_EVENT_NOTIFY_UNMOUNT:
-	case OES_EVENT_NOTIFY_KLDUNLOAD:
-	case OES_EVENT_NOTIFY_LINK:
-	case OES_EVENT_NOTIFY_MMAP:
-	case OES_EVENT_NOTIFY_MPROTECT:
-	case OES_EVENT_NOTIFY_CHDIR:
-	case OES_EVENT_NOTIFY_CHROOT:
-	case OES_EVENT_NOTIFY_SOCKET_CREATE:
-	case OES_EVENT_NOTIFY_SOCKET_ACCEPT:
-	case OES_EVENT_NOTIFY_SOCKET_SEND:
-	case OES_EVENT_NOTIFY_SOCKET_RECEIVE:
-	case OES_EVENT_NOTIFY_SOCKET_STAT:
-	case OES_EVENT_NOTIFY_SOCKET_POLL:
-	case OES_EVENT_NOTIFY_PIPE_READ:
-	case OES_EVENT_NOTIFY_PIPE_WRITE:
-	case OES_EVENT_NOTIFY_PIPE_STAT:
-	case OES_EVENT_NOTIFY_PIPE_POLL:
-	case OES_EVENT_NOTIFY_PIPE_IOCTL:
-	case OES_EVENT_NOTIFY_MOUNT_STAT:
-	case OES_EVENT_NOTIFY_PRIV_CHECK:
-	case OES_EVENT_NOTIFY_PROC_SCHED:
-		return (true);
-	default:
-		return (false);
-	}
-}
+bool	oes_event_is_valid(oes_event_type_t ev);
 
 /*
  * Valid event bitmaps.
@@ -425,56 +330,11 @@ oes_event_is_valid(oes_event_type_t ev)
 #define OES_VALID_NOTIFY_LO	0xFFFFFFFFFFFFEBDEULL
 #define OES_VALID_NOTIFY_HI	0x7ULL
 
-static const oes_event_type_t oes_auth_notify_map[] = {
-	[OES_EVENT_AUTH_EXEC]		= OES_EVENT_NOTIFY_EXEC,
-	[OES_EVENT_AUTH_OPEN]		= OES_EVENT_NOTIFY_OPEN,
-	[OES_EVENT_AUTH_CREATE]		= OES_EVENT_NOTIFY_CREATE,
-	[OES_EVENT_AUTH_UNLINK]		= OES_EVENT_NOTIFY_UNLINK,
-	[OES_EVENT_AUTH_RENAME]		= OES_EVENT_NOTIFY_RENAME,
-	[OES_EVENT_AUTH_LINK]		= OES_EVENT_NOTIFY_LINK,
-	[OES_EVENT_AUTH_MOUNT]		= OES_EVENT_NOTIFY_MOUNT,
-	[OES_EVENT_AUTH_KLDLOAD]	= OES_EVENT_NOTIFY_KLDLOAD,
-	[OES_EVENT_AUTH_MMAP]		= OES_EVENT_NOTIFY_MMAP,
-	[OES_EVENT_AUTH_MPROTECT]	= OES_EVENT_NOTIFY_MPROTECT,
-	[OES_EVENT_AUTH_CHDIR]		= OES_EVENT_NOTIFY_CHDIR,
-	[OES_EVENT_AUTH_CHROOT]		= OES_EVENT_NOTIFY_CHROOT,
-	[OES_EVENT_AUTH_SETEXTATTR]	= OES_EVENT_NOTIFY_SETEXTATTR,
-	[OES_EVENT_AUTH_PTRACE]		= OES_EVENT_NOTIFY_PTRACE,
-	[OES_EVENT_AUTH_ACCESS]		= OES_EVENT_NOTIFY_ACCESS,
-	[OES_EVENT_AUTH_READ]		= OES_EVENT_NOTIFY_READ,
-	[OES_EVENT_AUTH_WRITE]		= OES_EVENT_NOTIFY_WRITE,
-	[OES_EVENT_AUTH_LOOKUP]		= OES_EVENT_NOTIFY_LOOKUP,
-	[OES_EVENT_AUTH_SETMODE]	= OES_EVENT_NOTIFY_SETMODE,
-	[OES_EVENT_AUTH_SETOWNER]	= OES_EVENT_NOTIFY_SETOWNER,
-	[OES_EVENT_AUTH_SETFLAGS]	= OES_EVENT_NOTIFY_SETFLAGS,
-	[OES_EVENT_AUTH_SETUTIMES]	= OES_EVENT_NOTIFY_SETUTIMES,
-	[OES_EVENT_AUTH_STAT]		= OES_EVENT_NOTIFY_STAT,
-	[OES_EVENT_AUTH_POLL]		= OES_EVENT_NOTIFY_POLL,
-	[OES_EVENT_AUTH_REVOKE]		= OES_EVENT_NOTIFY_REVOKE,
-	[OES_EVENT_AUTH_READDIR]	= OES_EVENT_NOTIFY_READDIR,
-	[OES_EVENT_AUTH_READLINK]	= OES_EVENT_NOTIFY_READLINK,
-	[OES_EVENT_AUTH_GETEXTATTR]	= OES_EVENT_NOTIFY_GETEXTATTR,
-	[OES_EVENT_AUTH_DELETEEXTATTR]	= OES_EVENT_NOTIFY_DELETEEXTATTR,
-	[OES_EVENT_AUTH_LISTEXTATTR]	= OES_EVENT_NOTIFY_LISTEXTATTR,
-	[OES_EVENT_AUTH_GETACL]		= OES_EVENT_NOTIFY_GETACL,
-	[OES_EVENT_AUTH_SETACL]		= OES_EVENT_NOTIFY_SETACL,
-	[OES_EVENT_AUTH_DELETEACL]	= OES_EVENT_NOTIFY_DELETEACL,
-	[OES_EVENT_AUTH_RELABEL]	= OES_EVENT_NOTIFY_RELABEL,
-	/* Swapon/Swapoff */
-	[OES_EVENT_AUTH_SWAPON]		= OES_EVENT_NOTIFY_SWAPON,
-	[OES_EVENT_AUTH_SWAPOFF]	= OES_EVENT_NOTIFY_SWAPOFF,
-	/* Socket/pipe/mount_stat/priv/proc_sched are NOTIFY-only (no AUTH) */
-};
-
-static __inline oes_event_type_t
-oes_auth_to_notify(oes_event_type_t auth_event)
-{
-	u_int idx = (u_int)auth_event;
-
-	if (idx < nitems(oes_auth_notify_map))
-		return (oes_auth_notify_map[idx]);
-	return (0);
-}
+/*
+ * Map AUTH event type to its NOTIFY counterpart.
+ * Defined in oes_event.c.
+ */
+oes_event_type_t oes_auth_to_notify(oes_event_type_t auth_event);
 
 /*
  * Convert vnode type to EF_TYPE_*
@@ -603,9 +463,9 @@ int	oes_event_respond_flags(struct oes_client *ec, uint64_t msg_id,
 	    oes_auth_result_t result, uint32_t allowed_flags,
 	    uint32_t denied_flags);
 void	oes_event_handle_timeout(struct oes_pending *ep);
-struct oes_pending *oes_pending_clone(const struct oes_pending *src);
+struct oes_pending *oes_pending_clone(const struct oes_pending *src, int mflags);
 
-struct oes_auth_group *oes_auth_group_alloc(void);
+struct oes_auth_group *oes_auth_group_alloc(int mflags);
 void	oes_auth_group_hold(struct oes_auth_group *ag);
 void	oes_auth_group_rele(struct oes_auth_group *ag);
 void	oes_auth_group_add_pending(struct oes_auth_group *ag);
@@ -624,11 +484,22 @@ void	oes_mac_uninit(void);
 uint64_t oes_proc_get_exec_id(struct proc *p);
 
 /*
- * Helper to fill process info
+ * String table helpers
+ */
+void	oes_strtab_init(struct oes_strtab *st);
+uint32_t oes_strtab_add(struct oes_strtab *st, void *msg_base,
+	    const char *str);
+uint32_t oes_strtab_add_buf(struct oes_strtab *st, void *msg_base,
+	    const void *data, size_t len);
+
+/*
+ * Helpers to fill process/file info.
+ * strtab is used to append path strings to the message's string table.
  */
 void	oes_fill_process(oes_process_t *ep, struct proc *p,
-	    struct ucred *cred);
-void	oes_fill_file(oes_file_t *ef, struct vnode *vp, struct ucred *cred);
+	    struct ucred *cred, struct oes_strtab *st, void *msg_base);
+void	oes_fill_file(oes_file_t *ef, struct vnode *vp, struct ucred *cred,
+	    struct oes_strtab *st, void *msg_base);
 
 /*
  * Sysctl variables

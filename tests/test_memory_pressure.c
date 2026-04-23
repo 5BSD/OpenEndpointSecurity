@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include <security/oes/oes.h>
+#include "test_common.h"
 
 /*
  * Test opening many OES clients.
@@ -262,7 +263,6 @@ test_queue_exhaustion(void)
 	oes_event_type_t events[] = { OES_EVENT_NOTIFY_OPEN };
 	pid_t pids[500];
 	int i, spawned = 0;
-	struct pollfd pfd;
 	int queue_full_detected = 0;
 
 	printf("  Testing event queue exhaustion (500 events)...\n");
@@ -314,21 +314,11 @@ test_queue_exhaustion(void)
 	usleep(500000);
 
 	/* Now try to read - check for dropped events */
-	pfd.fd = fd;
-	pfd.events = POLLIN;
-
 	int count = 0;
-	while (poll(&pfd, 1, 100) > 0) {
-		oes_message_t msg;
-		ssize_t n = read(fd, &msg, sizeof(msg));
-		if (n == sizeof(msg)) {
-			count++;
-		} else if (n < 0 && errno != EAGAIN) {
-			/* Possible queue full indicator */
-			queue_full_detected = 1;
-			break;
-		}
-	}
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
+	while (test_wait_event(fd, msg, 100) == 0)
+		count++;
 
 	/* Wait for children */
 	for (i = 0; i < 500; i++) {

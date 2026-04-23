@@ -17,6 +17,7 @@
 #include <unistd.h>
 
 #include <security/oes/oes.h>
+#include "test_common.h"
 
 /*
  * Respond with flags-based response.
@@ -76,31 +77,32 @@ wait_for_auth(int fd, pid_t pid, oes_event_type_t event, int timeout_ms,
 			break;
 
 		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			oes_message_t msg;
-			ssize_t n = read(fd, &msg, sizeof(msg));
+			test_msg_buf _buf;
+			oes_message_t *msg = &_buf.msg;
+			ssize_t n = read(fd, msg, OES_MSG_MAX_SIZE);
 			if (n < 0) {
 				if (errno == EAGAIN || errno == EWOULDBLOCK)
 					continue;
 				perror("read");
 				return (-1);
 			}
-			if ((size_t)n != sizeof(msg))
+			if (n < (ssize_t)sizeof(oes_message_t))
 				continue;
 
 			/* Respond to unrelated AUTH events */
-			if (msg.em_action == OES_ACTION_AUTH &&
-			    (msg.em_process.ep_pid != pid ||
-			     msg.em_event != event)) {
-				(void)respond_simple(fd, msg.em_id, OES_AUTH_ALLOW);
+			if (msg->em_action == OES_ACTION_AUTH &&
+			    (msg->em_process.ep_pid != pid ||
+			     msg->em_event != event)) {
+				(void)respond_simple(fd, msg->em_id, OES_AUTH_ALLOW);
 				continue;
 			}
 
-			if (msg.em_process.ep_pid != pid)
+			if (msg->em_process.ep_pid != pid)
 				continue;
-			if (msg.em_event != event)
+			if (msg->em_event != event)
 				continue;
 			if (out != NULL)
-				*out = msg;
+				*out = *msg;
 			return (0);
 		}
 	}
@@ -120,7 +122,8 @@ main(void)
 	};
 	int pipefd[2];
 	pid_t child;
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	int status;
 	char cmd;
 	int ret;
@@ -226,14 +229,14 @@ main(void)
 	cmd = 'r';
 	(void)write(pipefd[1], &cmd, 1);
 
-	ret = wait_for_auth(fd, child, OES_EVENT_AUTH_OPEN, 2000, &msg);
+	ret = wait_for_auth(fd, child, OES_EVENT_AUTH_OPEN, 2000, msg);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: no AUTH_OPEN event received\n");
 		goto fail;
 	}
 
 	/* Respond with flags-based ALLOW (no flag restrictions) */
-	ret = respond_with_flags(fd, msg.em_id, OES_AUTH_ALLOW, 0, 0);
+	ret = respond_with_flags(fd, msg->em_id, OES_AUTH_ALLOW, 0, 0);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: flags response write failed\n");
 		goto fail;
@@ -263,14 +266,14 @@ main(void)
 	cmd = 'r';
 	(void)write(pipefd[1], &cmd, 1);
 
-	ret = wait_for_auth(fd, child, OES_EVENT_AUTH_OPEN, 2000, &msg);
+	ret = wait_for_auth(fd, child, OES_EVENT_AUTH_OPEN, 2000, msg);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: no AUTH_OPEN event received\n");
 		goto fail;
 	}
 
 	/* Respond with flags-based DENY */
-	ret = respond_with_flags(fd, msg.em_id, OES_AUTH_DENY, 0, O_RDONLY);
+	ret = respond_with_flags(fd, msg->em_id, OES_AUTH_DENY, 0, O_RDONLY);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: flags response write failed\n");
 		goto fail;
@@ -300,14 +303,14 @@ main(void)
 	cmd = 'r';
 	(void)write(pipefd[1], &cmd, 1);
 
-	ret = wait_for_auth(fd, child, OES_EVENT_AUTH_OPEN, 2000, &msg);
+	ret = wait_for_auth(fd, child, OES_EVENT_AUTH_OPEN, 2000, msg);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: no AUTH_OPEN event received\n");
 		goto fail;
 	}
 
 	/* Respond with simple response (shorter write) */
-	ret = respond_simple(fd, msg.em_id, OES_AUTH_ALLOW);
+	ret = respond_simple(fd, msg->em_id, OES_AUTH_ALLOW);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: simple response write failed\n");
 		goto fail;
@@ -337,16 +340,16 @@ main(void)
 	cmd = 'w';
 	(void)write(pipefd[1], &cmd, 1);
 
-	ret = wait_for_auth(fd, child, OES_EVENT_AUTH_OPEN, 2000, &msg);
+	ret = wait_for_auth(fd, child, OES_EVENT_AUTH_OPEN, 2000, msg);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: no AUTH_OPEN event received\n");
 		goto fail;
 	}
 
-	printf("    Received OPEN for flags=0x%x\n", msg.em_event_data.open.flags);
+	printf("    Received OPEN for flags=0x%x\n", msg->em_event_data.open.flags);
 
 	/* Allow but specify only read flag is permitted */
-	ret = respond_with_flags(fd, msg.em_id, OES_AUTH_ALLOW, O_RDONLY, O_WRONLY);
+	ret = respond_with_flags(fd, msg->em_id, OES_AUTH_ALLOW, O_RDONLY, O_WRONLY);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: flags response write failed\n");
 		goto fail;

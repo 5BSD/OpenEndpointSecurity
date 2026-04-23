@@ -29,6 +29,7 @@
 #include <unistd.h>
 
 #include <security/oes/oes.h>
+#include "test_common.h"
 
 #define TEST_DIR	"/tmp/oes_hook_test"
 #define TEST_FILE	TEST_DIR "/testfile"
@@ -104,7 +105,8 @@ static int
 wait_for_event(oes_event_type_t expected, pid_t from_pid, int timeout_ms)
 {
 	struct pollfd pfd;
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	struct timespec start, now;
 	ssize_t n;
 
@@ -122,14 +124,14 @@ wait_for_event(oes_event_type_t expected, pid_t from_pid, int timeout_ms)
 		if (poll(&pfd, 1, timeout_ms - elapsed) <= 0)
 			return (0);
 
-		n = read(oes_fd, &msg, sizeof(msg));
-		if (n != sizeof(msg))
+		n = read(oes_fd, msg, OES_MSG_MAX_SIZE);
+		if (n < (ssize_t)sizeof(oes_message_t))
 			continue;
 
-		if (from_pid != 0 && msg.em_process.ep_pid != from_pid)
+		if (from_pid != 0 && msg->em_process.ep_pid != from_pid)
 			continue;
 
-		if (msg.em_event == expected)
+		if (msg->em_event == expected)
 			return (1);
 	}
 }
@@ -138,12 +140,13 @@ static void
 drain_events(void)
 {
 	struct pollfd pfd;
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 
 	pfd.fd = oes_fd;
 	pfd.events = POLLIN;
 	while (poll(&pfd, 1, 10) > 0)
-		(void)read(oes_fd, &msg, sizeof(msg));
+		(void)read(oes_fd, msg, OES_MSG_MAX_SIZE);
 }
 
 /*
@@ -358,9 +361,10 @@ static void action_sysctl(void) {
 }
 
 static void action_exec(void) {
-	char *argv[] = { "/bin/echo", NULL };
+	char path[] = "/bin/echo";
+	char *argv[] = { path, NULL };
 	char *envp[] = { NULL };
-	execve("/bin/echo", argv, envp);
+	execve(path, argv, envp);
 }
 
 /* New action helpers for added hooks */
@@ -724,7 +728,8 @@ test_auth_denial(void)
 	oes_event_type_t event = OES_EVENT_AUTH_LINK;
 	pid_t pid;
 	int status;
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	oes_response_t resp;
 	ssize_t n;
 	struct pollfd pfd;
@@ -773,10 +778,10 @@ test_auth_denial(void)
 	pfd.fd = oes_fd;
 	pfd.events = POLLIN;
 	if (poll(&pfd, 1, 2000) > 0) {
-		n = read(oes_fd, &msg, sizeof(msg));
-		if (n == sizeof(msg) && msg.em_event == OES_EVENT_AUTH_LINK) {
+		n = read(oes_fd, msg, OES_MSG_MAX_SIZE);
+		if (n >= (ssize_t)sizeof(oes_message_t) && msg->em_event == OES_EVENT_AUTH_LINK) {
 			memset(&resp, 0, sizeof(resp));
-			resp.er_id = msg.em_id;
+			resp.er_id = msg->em_id;
 			resp.er_result = OES_AUTH_DENY;
 			write(oes_fd, &resp, sizeof(resp));
 		}

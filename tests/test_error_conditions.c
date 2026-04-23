@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include <security/oes/oes.h>
+#include "test_common.h"
 
 static int
 test_invalid_mode(void)
@@ -286,7 +287,8 @@ test_read_without_subscribe(void)
 {
 	int fd;
 	struct oes_mode_args mode;
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	ssize_t n;
 
 	printf("  Testing read without subscribe...\n");
@@ -306,7 +308,7 @@ test_read_without_subscribe(void)
 	}
 
 	/* Don't subscribe, just try to read */
-	n = read(fd, &msg, sizeof(msg));
+	n = read(fd, msg, OES_MSG_MAX_SIZE);
 	if (n < 0 && errno == EAGAIN) {
 		printf("    PASS: read without subscribe returns EAGAIN\n");
 	} else if (n == 0) {

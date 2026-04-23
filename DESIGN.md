@@ -292,8 +292,9 @@ typedef struct {
     int             ep_jid;         /* Jail ID (0 if not jailed) */
     uint32_t        ep_flags;       /* EP_* flags below */
     char            ep_comm[MAXCOMLEN+1];   /* Command name */
-    char            ep_path[MAXPATHLEN];    /* Executable path */
-    /* Future: MAC label and other metadata (no code signing/entitlements). */
+    uint32_t        ep_path_off;    /* Executable path (string table offset) */
+    uint32_t        ep_cwd_off;     /* Working directory (string table offset) */
+    uint32_t        ep_jailname_off; /* Jail name (string table offset) */
 } oes_process_t;
 
 #define EP_FLAG_SETUID      0x0001  /* Running setuid */
@@ -324,7 +325,7 @@ typedef struct {
     uid_t           ef_uid;         /* Owner UID */
     gid_t           ef_gid;         /* Owner GID */
     uint32_t        ef_flags;       /* File flags */
-    char            ef_path[MAXPATHLEN];
+    uint32_t        ef_path_off;    /* Path (string table offset) */
 } oes_file_t;
 ```
 
@@ -795,8 +796,9 @@ int oes_get_mode(oes_client_t *client, uint32_t *mode,
 int oes_set_timeout(oes_client_t *client, uint32_t timeout_ms);
 int oes_get_timeout(oes_client_t *client, uint32_t *timeout_ms);
 
-/* Read next event (blocking or non-blocking based on fd flags) */
-int oes_read_event(oes_client_t *client, oes_message_t *msg);
+/* Read next event (blocking or non-blocking) */
+int oes_read_event(oes_client_t *client, const oes_message_t **msgp,
+                   bool blocking);
 
 /* Respond to AUTH event */
 int oes_respond(oes_client_t *client, uint64_t msg_id,

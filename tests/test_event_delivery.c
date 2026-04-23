@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include <security/oes/oes.h>
+#include "test_common.h"
 
 /*
  * Count events received within a time window.
@@ -25,33 +26,29 @@
 static int
 drain_events(int fd, int timeout_ms, int *count)
 {
-	struct pollfd pfd;
 	struct timespec start, now;
 	long elapsed_ms;
+	test_msg_buf _buf;
+	oes_message_t *msg = &_buf.msg;
 	*count = 0;
-
-	pfd.fd = fd;
-	pfd.events = POLLIN;
 	clock_gettime(CLOCK_MONOTONIC, &start);
 
 	while (1) {
+		int remaining;
+
 		clock_gettime(CLOCK_MONOTONIC, &now);
 		elapsed_ms = (now.tv_sec - start.tv_sec) * 1000L +
 		    (now.tv_nsec - start.tv_nsec) / 1000000L;
 		if (elapsed_ms >= timeout_ms)
 			break;
 
-		if (poll(&pfd, 1, 50) > 0 && (pfd.revents & POLLIN)) {
-			oes_message_t msg;
-			ssize_t n = read(fd, &msg, sizeof(msg));
-			if (n < 0) {
-				if (errno == EAGAIN || errno == EWOULDBLOCK)
-					continue;
-				return (-1);
-			}
-			if ((size_t)n == sizeof(msg))
-				(*count)++;
-		}
+		remaining = timeout_ms - (int)elapsed_ms;
+		if (remaining > 50)
+			remaining = 50;
+
+		if (test_wait_event(fd, msg, remaining) != 0)
+			continue;
+		(*count)++;
 	}
 
 	return (0);
@@ -280,8 +277,7 @@ test_event_ordering(void)
 	struct oes_mode_args mode;
 	struct oes_subscribe_args sub;
 	oes_event_type_t events[] = { OES_EVENT_NOTIFY_FORK };
-	oes_message_t msgs[10];
-	struct pollfd pfd;
+	test_msg_buf _msgs_bufs[10];
 	pid_t pids[10];
 	int i, count = 0;
 	int ordered = 1;
@@ -327,28 +323,21 @@ test_event_ordering(void)
 			waitpid(pids[i], NULL, 0);
 	}
 
-	/* Read events */
-	pfd.fd = fd;
-	pfd.events = POLLIN;
-
-	while (count < 10 && poll(&pfd, 1, 500) > 0) {
-		if (pfd.revents & POLLIN) {
-			ssize_t n = read(fd, &msgs[count], sizeof(msgs[0]));
-			if (n == sizeof(msgs[0]))
-				count++;
-		}
-	}
+	while (count < 10 &&
+	    test_wait_event(fd, &_msgs_bufs[count].msg, 500) == 0)
+		count++;
 
 	/* Check ordering by message ID (should be increasing) */
 	for (i = 1; i < count; i++) {
-		if (msgs[i].em_id < msgs[i-1].em_id) {
+		if (_msgs_bufs[i].msg.em_id < _msgs_bufs[i-1].msg.em_id) {
 			ordered = 0;
 			printf("    WARN: event %d (id=%lu) before event %d (id=%lu)\n",
-			    i, (unsigned long)msgs[i].em_id,
-			    i-1, (unsigned long)msgs[i-1].em_id);
+			    i, (unsigned long)_msgs_bufs[i].msg.em_id,
+			    i-1, (unsigned long)_msgs_bufs[i-1].msg.em_id);
 		}
 	}
 
+	test_batch_reset();
 	close(fd);
 
 	if (ordered) {
@@ -506,7 +495,8 @@ test_blocking_read(void)
 	struct oes_mode_args mode;
 	struct oes_subscribe_args sub;
 	oes_event_type_t events[] = { OES_EVENT_NOTIFY_EXEC };
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	pid_t reader_pid, event_pid;
 	int status;
 
@@ -541,8 +531,8 @@ test_blocking_read(void)
 	if (reader_pid == 0) {
 		/* Child - do blocking read */
 		alarm(5);  /* Timeout after 5s */
-		ssize_t n = read(fd, &msg, sizeof(msg));
-		if (n == sizeof(msg)) {
+		ssize_t n = read(fd, msg, OES_MSG_MAX_SIZE);
+		if (n >= (ssize_t)sizeof(oes_message_t)) {
 			_exit(0);  /* Success */
 		}
 		_exit(1);  /* Failure */
@@ -664,7 +654,8 @@ test_empty_queue_read(void)
 {
 	int fd;
 	struct oes_mode_args mode;
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	ssize_t n;
 
 	printf("  Testing read from empty queue...\n");
@@ -684,7 +675,7 @@ test_empty_queue_read(void)
 	}
 
 	/* Don't subscribe to anything, just try to read */
-	n = read(fd, &msg, sizeof(msg));
+	n = read(fd, msg, OES_MSG_MAX_SIZE);
 	if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
 		printf("    PASS: empty queue returns EAGAIN\n");
 	} else if (n < 0) {

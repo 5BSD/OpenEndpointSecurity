@@ -3,7 +3,15 @@
 # Build and run tests for the OES kernel module
 
 CC?=		cc
-CFLAGS=		-Wall -Wextra -I../sys
+STRICT_CFLAGS=	-Wall -Wextra -Werror \
+		-Wstrict-prototypes -Wmissing-prototypes \
+		-Wpointer-arith -Wreturn-type -Wcast-qual \
+		-Wwrite-strings -Wswitch -Wshadow \
+		-Wunused-parameter -Wcast-align \
+		-Wchar-subscripts -Wnested-externs \
+		-Wold-style-definition -Wdate-time \
+		-Wmissing-variable-declarations
+CFLAGS+=	$(STRICT_CFLAGS) -I../sys
 TESTS=		test_mute \
 		test_path_mute \
 		test_decision_cache \

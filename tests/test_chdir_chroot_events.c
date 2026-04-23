@@ -14,7 +14,8 @@ test_chdir_event(void)
 {
 	int fd;
 	oes_event_type_t events[] = { OES_EVENT_NOTIFY_CHDIR };
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	char origdir[256];
 	int got_chdir = 0;
 
@@ -50,8 +51,8 @@ test_chdir_event(void)
 
 	/* Check for chdir event */
 	for (int i = 0; i < 3; i++) {
-		if (test_wait_event(fd, &msg, 500) == 0) {
-			if (msg.em_event == OES_EVENT_NOTIFY_CHDIR) {
+		if (test_wait_event(fd, msg, 500) == 0) {
+			if (msg->em_event == OES_EVENT_NOTIFY_CHDIR) {
 				got_chdir = 1;
 				printf("    INFO: chdir event received\n");
 			}
@@ -74,7 +75,8 @@ test_fchdir_event(void)
 {
 	int fd, dirfd;
 	oes_event_type_t events[] = { OES_EVENT_NOTIFY_CHDIR };
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	char origdir[256];
 	int got_chdir = 0;
 
@@ -118,8 +120,8 @@ test_fchdir_event(void)
 
 	/* Check for chdir event */
 	for (int i = 0; i < 3; i++) {
-		if (test_wait_event(fd, &msg, 500) == 0) {
-			if (msg.em_event == OES_EVENT_NOTIFY_CHDIR) {
+		if (test_wait_event(fd, msg, 500) == 0) {
+			if (msg->em_event == OES_EVENT_NOTIFY_CHDIR) {
 				got_chdir = 1;
 				printf("    INFO: fchdir event received\n");
 			}
@@ -142,7 +144,8 @@ test_chroot_event(void)
 	int fd;
 	pid_t child;
 	oes_event_type_t events[] = { OES_EVENT_NOTIFY_CHROOT };
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	int got_chroot = 0;
 	int pipefd[2];
 	char buf;
@@ -214,8 +217,8 @@ test_chroot_event(void)
 
 	/* Check for chroot event */
 	for (int i = 0; i < 3; i++) {
-		if (test_wait_event(fd, &msg, 500) == 0) {
-			if (msg.em_event == OES_EVENT_NOTIFY_CHROOT) {
+		if (test_wait_event(fd, msg, 500) == 0) {
+			if (msg->em_event == OES_EVENT_NOTIFY_CHROOT) {
 				got_chroot = 1;
 				printf("    INFO: chroot event received\n");
 			}
@@ -236,7 +239,8 @@ test_sysctl_event(void)
 {
 	int fd;
 	oes_event_type_t events[] = { OES_EVENT_NOTIFY_SYSCTL };
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	int mib[2];
 	char buf[256];
 	size_t len;
@@ -270,8 +274,8 @@ test_sysctl_event(void)
 
 	/* Check for sysctl event */
 	for (int i = 0; i < 3; i++) {
-		if (test_wait_event(fd, &msg, 500) == 0) {
-			if (msg.em_event == OES_EVENT_NOTIFY_SYSCTL) {
+		if (test_wait_event(fd, msg, 500) == 0) {
+			if (msg->em_event == OES_EVENT_NOTIFY_SYSCTL) {
 				got_sysctl = 1;
 				printf("    INFO: sysctl event received\n");
 			}
@@ -291,7 +295,8 @@ test_kenv_event(void)
 {
 	int fd;
 	oes_event_type_t events[] = { OES_EVENT_NOTIFY_KENV };
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	char value[256];
 	int got_kenv = 0;
 
@@ -319,8 +324,8 @@ test_kenv_event(void)
 
 	/* Check for kenv event */
 	for (int i = 0; i < 3; i++) {
-		if (test_wait_event(fd, &msg, 500) == 0) {
-			if (msg.em_event == OES_EVENT_NOTIFY_KENV) {
+		if (test_wait_event(fd, msg, 500) == 0) {
+			if (msg->em_event == OES_EVENT_NOTIFY_KENV) {
 				got_kenv = 1;
 				printf("    INFO: kenv event received\n");
 			}
@@ -345,7 +350,8 @@ test_auth_chdir(void)
 	struct oes_mute_args mute;
 	struct oes_mute_invert_args invert;
 	oes_event_type_t events[] = { OES_EVENT_AUTH_CHDIR };
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	oes_response_t resp;
 	int pipefd[2];
 	char buf;
@@ -425,10 +431,10 @@ test_auth_chdir(void)
 	close(pipefd[1]);
 
 	/* Wait for AUTH_CHDIR event */
-	if (test_wait_event_type(fd, &msg, OES_EVENT_AUTH_CHDIR, 3000) == 0) {
+	if (test_wait_event_type(fd, msg, OES_EVENT_AUTH_CHDIR, 3000) == 0) {
 		printf("    INFO: got AUTH_CHDIR event, denying\n");
 		memset(&resp, 0, sizeof(resp));
-		resp.er_id = msg.em_id;
+		resp.er_id = msg->em_id;
 		resp.er_result = OES_AUTH_DENY;
 		(void)write(fd, &resp, sizeof(resp));
 	} else {

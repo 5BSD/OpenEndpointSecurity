@@ -249,13 +249,18 @@ int oes_get_mute_invert(oes_client_t *client, uint32_t type, bool *invert);
 /*
  * oes_read_event - Read one event (blocking or non-blocking)
  *
- * msg: Buffer to receive event
- * blocking: If true, blocks until event available
+ * On success, *msgp points to the event inside the client's internal
+ * buffer.  The pointer is valid until the next oes_read_event() call.
+ * Copy any data you need before calling oes_read_event() again.
+ *
+ * The kernel batches multiple NOTIFY events per read() syscall.
+ * This function drains them one at a time transparently.
  *
  * Returns 0 on success, -1 on error.
  * EAGAIN if non-blocking and no events available.
  */
-int oes_read_event(oes_client_t *client, oes_message_t *msg, bool blocking);
+int oes_read_event(oes_client_t *client, const oes_message_t **msgp,
+    bool blocking);
 
 /*
  * oes_respond - Respond to an AUTH event
@@ -274,7 +279,7 @@ int oes_respond(oes_client_t *client, uint64_t msg_id,
 static inline int
 oes_respond_allow(oes_client_t *client, const oes_message_t *msg)
 {
-	return oes_respond(client, msg->em_id, OES_AUTH_ALLOW);
+	return (oes_respond(client, msg->em_id, OES_AUTH_ALLOW));
 }
 
 /*
@@ -283,7 +288,25 @@ oes_respond_allow(oes_client_t *client, const oes_message_t *msg)
 static inline int
 oes_respond_deny(oes_client_t *client, const oes_message_t *msg)
 {
-	return oes_respond(client, msg->em_id, OES_AUTH_DENY);
+	return (oes_respond(client, msg->em_id, OES_AUTH_DENY));
+}
+
+/*
+ * oes_process_path - Get executable path from process info
+ */
+static inline const char *
+oes_process_path(const oes_message_t *msg, const oes_process_t *proc)
+{
+	return (oes_msg_string(msg, proc->ep_path_off));
+}
+
+/*
+ * oes_file_path - Get file path from file info
+ */
+static inline const char *
+oes_file_path(const oes_message_t *msg, const oes_file_t *file)
+{
+	return (oes_msg_string(msg, file->ef_path_off));
 }
 
 /*

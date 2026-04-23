@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include <security/oes/oes.h>
+#include "test_common.h"
 
 static int
 wait_for_open_event(int fd, pid_t pid, int timeout_ms, oes_message_t *out)
@@ -36,24 +37,25 @@ wait_for_open_event(int fd, pid_t pid, int timeout_ms, oes_message_t *out)
 			break;
 
 		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			oes_message_t msg;
-			ssize_t n = read(fd, &msg, sizeof(msg));
+			test_msg_buf _buf;
+			oes_message_t *msg = &_buf.msg;
+			ssize_t n = read(fd, msg, OES_MSG_MAX_SIZE);
 			if (n < 0) {
 				if (errno == EAGAIN || errno == EWOULDBLOCK)
 					continue;
 				perror("read");
 				return (-1);
 			}
-			if ((size_t)n != sizeof(msg))
+			if (n < (ssize_t)sizeof(oes_message_t))
 				continue;
-			if (msg.em_event != OES_EVENT_AUTH_OPEN)
+			if (msg->em_event != OES_EVENT_AUTH_OPEN)
 				continue;
-			if (msg.em_action != OES_ACTION_AUTH)
+			if (msg->em_action != OES_ACTION_AUTH)
 				continue;
-			if (msg.em_process.ep_pid != pid)
+			if (msg->em_process.ep_pid != pid)
 				continue;
 			if (out != NULL)
-				*out = msg;
+				*out = *msg;
 			return (0);
 		}
 	}
@@ -114,7 +116,8 @@ main(void)
 	int status;
 	int err;
 	char cmd = 'g';
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 
 	fd = open("/dev/oes", O_RDWR | O_NONBLOCK);
 	if (fd < 0) {
@@ -202,7 +205,7 @@ main(void)
 
 	(void)write(ctl_pipe[1], &cmd, 1);
 
-	if (wait_for_open_event(fd, child, 2000, &msg) != 0) {
+	if (wait_for_open_event(fd, child, 2000, msg) != 0) {
 		fprintf(stderr, "expected AUTH open event\n");
 		goto fail;
 	}

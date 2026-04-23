@@ -13,6 +13,7 @@
 #include <errno.h>
 
 #include <security/oes/oes.h>
+#include "lib/liboes/liboes.h"
 
 static void print_sockaddr(const oes_sockaddr_t *sa)
 {
@@ -136,7 +137,12 @@ int main(int argc, char **argv)
 		OES_EVENT_AUTH_SWAPON,
 		OES_EVENT_AUTH_SWAPOFF,
 	};
-	oes_message_t msg;
+	uint8_t readbuf[OES_MSG_MAX_SIZE] __attribute__((aligned(__alignof__(oes_message_t))));
+	union {
+		oes_message_t	msg;
+		uint8_t		_pad[OES_MSG_MAX_SIZE];
+	} cur;
+	oes_message_t *msg = &cur.msg;
 	ssize_t n;
 
 	/* Check for -a flag (AUTH mode) */
@@ -201,146 +207,155 @@ int main(int argc, char **argv)
 			printf("NOTE: AUTH all enabled - many operations will block.\n");
 	}
 
-	while ((n = read(fd, &msg, sizeof(msg))) > 0) {
+	while ((n = read(fd, readbuf, sizeof(readbuf))) >= (ssize_t)sizeof(*msg)) {
+	    size_t batch_off = 0;
+	    while (batch_off + sizeof(oes_message_t) <= (size_t)n) {
+		/* Copy header to check em_size, then full message */
+		memcpy(msg, readbuf + batch_off, sizeof(oes_message_t));
+		if (msg->em_size < sizeof(oes_message_t) ||
+		    batch_off + msg->em_size > (size_t)n)
+			break;
+		memcpy(msg, readbuf + batch_off, msg->em_size);
+		{
 		const char *path = "";
 
 		/* Get path based on event type */
-		switch (msg.em_event) {
+		switch (msg->em_event) {
 		case OES_EVENT_NOTIFY_EXEC:
 		case OES_EVENT_AUTH_EXEC:
-			path = msg.em_event_data.exec.executable.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.exec.executable);
 			break;
 		case OES_EVENT_NOTIFY_OPEN:
 		case OES_EVENT_AUTH_OPEN:
-			path = msg.em_event_data.open.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.open.file);
 			break;
 		case OES_EVENT_NOTIFY_ACCESS:
 		case OES_EVENT_AUTH_ACCESS:
-			path = msg.em_event_data.access.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.access.file);
 			break;
 		case OES_EVENT_NOTIFY_READ:
 		case OES_EVENT_AUTH_READ:
 		case OES_EVENT_NOTIFY_WRITE:
 		case OES_EVENT_AUTH_WRITE:
-			path = msg.em_event_data.rw.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.rw.file);
 			break;
 		case OES_EVENT_NOTIFY_LOOKUP:
 		case OES_EVENT_AUTH_LOOKUP:
-			path = msg.em_event_data.lookup.dir.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.lookup.dir);
 			break;
 		case OES_EVENT_NOTIFY_STAT:
 		case OES_EVENT_AUTH_STAT:
-			path = msg.em_event_data.stat.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.stat.file);
 			break;
 		case OES_EVENT_NOTIFY_POLL:
 		case OES_EVENT_AUTH_POLL:
-			path = msg.em_event_data.poll.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.poll.file);
 			break;
 		case OES_EVENT_NOTIFY_REVOKE:
 		case OES_EVENT_AUTH_REVOKE:
-			path = msg.em_event_data.revoke.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.revoke.file);
 			break;
 		case OES_EVENT_NOTIFY_READDIR:
 		case OES_EVENT_AUTH_READDIR:
-			path = msg.em_event_data.readdir.dir.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.readdir.dir);
 			break;
 		case OES_EVENT_NOTIFY_READLINK:
 		case OES_EVENT_AUTH_READLINK:
-			path = msg.em_event_data.readlink.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.readlink.file);
 			break;
 		case OES_EVENT_NOTIFY_SETEXTATTR:
 		case OES_EVENT_AUTH_SETEXTATTR:
-			path = msg.em_event_data.setextattr.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.setextattr.file);
 			break;
 		case OES_EVENT_NOTIFY_GETEXTATTR:
 		case OES_EVENT_AUTH_GETEXTATTR:
-			path = msg.em_event_data.getextattr.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.getextattr.file);
 			break;
 		case OES_EVENT_NOTIFY_DELETEEXTATTR:
 		case OES_EVENT_AUTH_DELETEEXTATTR:
-			path = msg.em_event_data.deleteextattr.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.deleteextattr.file);
 			break;
 		case OES_EVENT_NOTIFY_LISTEXTATTR:
 		case OES_EVENT_AUTH_LISTEXTATTR:
-			path = msg.em_event_data.listextattr.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.listextattr.file);
 			break;
 		case OES_EVENT_NOTIFY_GETACL:
 		case OES_EVENT_AUTH_GETACL:
-			path = msg.em_event_data.getacl.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.getacl.file);
 			break;
 		case OES_EVENT_NOTIFY_SETACL:
 		case OES_EVENT_AUTH_SETACL:
-			path = msg.em_event_data.setacl.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.setacl.file);
 			break;
 		case OES_EVENT_NOTIFY_DELETEACL:
 		case OES_EVENT_AUTH_DELETEACL:
-			path = msg.em_event_data.deleteacl.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.deleteacl.file);
 			break;
 		case OES_EVENT_NOTIFY_RELABEL:
 		case OES_EVENT_AUTH_RELABEL:
-			path = msg.em_event_data.relabel.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.relabel.file);
 			break;
 		case OES_EVENT_NOTIFY_CREATE:
 		case OES_EVENT_AUTH_CREATE:
-			path = msg.em_event_data.create.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.create.file);
 			break;
 		case OES_EVENT_NOTIFY_UNLINK:
 		case OES_EVENT_AUTH_UNLINK:
-			path = msg.em_event_data.unlink.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.unlink.file);
 			break;
 		case OES_EVENT_NOTIFY_RENAME:
 		case OES_EVENT_AUTH_RENAME:
-			path = msg.em_event_data.rename.src_file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.rename.src_file);
 			break;
 		case OES_EVENT_AUTH_LINK:
-			path = msg.em_event_data.link.target.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.link.target);
 			break;
 		case OES_EVENT_AUTH_CHDIR:
-			path = msg.em_event_data.chdir.dir.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.chdir.dir);
 			break;
 		case OES_EVENT_AUTH_CHROOT:
-			path = msg.em_event_data.chroot.dir.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.chroot.dir);
 			break;
 		case OES_EVENT_NOTIFY_SETMODE:
 		case OES_EVENT_AUTH_SETMODE:
-			path = msg.em_event_data.setmode.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.setmode.file);
 			break;
 		case OES_EVENT_NOTIFY_SETOWNER:
 		case OES_EVENT_AUTH_SETOWNER:
-			path = msg.em_event_data.setowner.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.setowner.file);
 			break;
 		case OES_EVENT_NOTIFY_SETFLAGS:
 		case OES_EVENT_AUTH_SETFLAGS:
-			path = msg.em_event_data.setflags.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.setflags.file);
 			break;
 		case OES_EVENT_NOTIFY_SETUTIMES:
 		case OES_EVENT_AUTH_SETUTIMES:
-			path = msg.em_event_data.setutimes.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.setutimes.file);
 			break;
 		case OES_EVENT_AUTH_MMAP:
-			path = msg.em_event_data.mmap.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.mmap.file);
 			break;
 		case OES_EVENT_AUTH_MPROTECT:
-			path = msg.em_event_data.mprotect.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.mprotect.file);
 			break;
 		case OES_EVENT_NOTIFY_KLDLOAD:
 		case OES_EVENT_AUTH_KLDLOAD:
-			path = msg.em_event_data.kldload.file.ef_path;
+			path = oes_file_path(msg, &msg->em_event_data.kldload.file);
 			break;
 		default:
 			break;
 		}
 
 		printf("Event: type=0x%04x pid=%d uid=%d comm=%s",
-		    msg.em_event, msg.em_process.ep_pid,
-		    msg.em_process.ep_uid, msg.em_process.ep_comm);
+		    msg->em_event, msg->em_process.ep_pid,
+		    msg->em_process.ep_uid, msg->em_process.ep_comm);
 
 		/* Show jail ID if jailed */
-		if (msg.em_process.ep_flags & EP_FLAG_JAILED)
-			printf(" jid=%d", msg.em_process.ep_jid);
+		if (msg->em_process.ep_flags & EP_FLAG_JAILED)
+			printf(" jid=%d", msg->em_process.ep_jid);
 
 		/* Show capability mode */
-		if (msg.em_process.ep_flags & EP_FLAG_CAPMODE)
+		if (msg->em_process.ep_flags & EP_FLAG_CAPMODE)
 			printf(" [CAPMODE]");
 
 		/* Show path if available */
@@ -348,134 +363,140 @@ int main(int argc, char **argv)
 			printf(" path=%s", path);
 
 		/* Show argc for exec events */
-		if ((msg.em_event & 0x0FFF) == (OES_EVENT_AUTH_EXEC & 0x0FFF)) {
+		if ((msg->em_event & 0x0FFF) == (OES_EVENT_AUTH_EXEC & 0x0FFF)) {
 			printf(" argc=%u envc=%u",
-			    msg.em_event_data.exec.argc,
-			    msg.em_event_data.exec.envc);
+			    msg->em_event_data.exec.argc,
+			    msg->em_event_data.exec.envc);
 		}
 
-		switch (msg.em_event) {
+		switch (msg->em_event) {
 		case OES_EVENT_AUTH_OPEN:
 		case OES_EVENT_NOTIFY_OPEN:
-			printf(" flags=0x%x", msg.em_event_data.open.flags);
+			printf(" flags=0x%x", msg->em_event_data.open.flags);
 			break;
 		case OES_EVENT_AUTH_CREATE:
 		case OES_EVENT_NOTIFY_CREATE:
-			printf(" mode=0%o", msg.em_event_data.create.mode);
+			printf(" mode=0%o", msg->em_event_data.create.mode);
 			break;
 		case OES_EVENT_AUTH_RENAME:
 		case OES_EVENT_NOTIFY_RENAME:
-			if (msg.em_event_data.rename.dst_name[0] != '\0')
-				printf(" dst=%s", msg.em_event_data.rename.dst_name);
+			if (msg->em_event_data.rename.dst_name_off != 0)
+				printf(" dst=%s", oes_msg_string(msg,
+				    msg->em_event_data.rename.dst_name_off));
 			break;
 		case OES_EVENT_AUTH_LINK:
-			if (msg.em_event_data.link.name[0] != '\0')
-				printf(" link=%s", msg.em_event_data.link.name);
+			if (msg->em_event_data.link.name_off != 0)
+				printf(" link=%s", oes_msg_string(msg,
+				    msg->em_event_data.link.name_off));
 			break;
 		case OES_EVENT_AUTH_MMAP:
 			printf(" prot=0x%x flags=0x%x",
-			    msg.em_event_data.mmap.prot,
-			    msg.em_event_data.mmap.flags);
+			    msg->em_event_data.mmap.prot,
+			    msg->em_event_data.mmap.flags);
 			break;
 		case OES_EVENT_AUTH_MPROTECT:
-			printf(" prot=0x%x", msg.em_event_data.mprotect.prot);
+			printf(" prot=0x%x", msg->em_event_data.mprotect.prot);
 			break;
 		case OES_EVENT_AUTH_ACCESS:
 		case OES_EVENT_NOTIFY_ACCESS:
 			printf(" accmode=0x%x",
-			    msg.em_event_data.access.accmode);
+			    msg->em_event_data.access.accmode);
 			break;
 		case OES_EVENT_NOTIFY_LOOKUP:
 		case OES_EVENT_AUTH_LOOKUP:
-			if (msg.em_event_data.lookup.name[0] != '\0')
+			if (msg->em_event_data.lookup.name_off != 0)
 				printf(" name=%s",
-				    msg.em_event_data.lookup.name);
+				    oes_msg_string(msg,
+				    msg->em_event_data.lookup.name_off));
 			break;
 		case OES_EVENT_NOTIFY_SETMODE:
 		case OES_EVENT_AUTH_SETMODE:
-			printf(" mode=0%o", msg.em_event_data.setmode.mode);
+			printf(" mode=0%o", msg->em_event_data.setmode.mode);
 			break;
 		case OES_EVENT_NOTIFY_SETOWNER:
 		case OES_EVENT_AUTH_SETOWNER:
 			printf(" uid=%d gid=%d",
-			    msg.em_event_data.setowner.uid,
-			    msg.em_event_data.setowner.gid);
+			    msg->em_event_data.setowner.uid,
+			    msg->em_event_data.setowner.gid);
 			break;
 		case OES_EVENT_NOTIFY_SETFLAGS:
 		case OES_EVENT_AUTH_SETFLAGS:
 			printf(" flags=0x%lx",
-			    msg.em_event_data.setflags.flags);
+			    msg->em_event_data.setflags.flags);
 			break;
 		case OES_EVENT_NOTIFY_SETUTIMES:
 		case OES_EVENT_AUTH_SETUTIMES:
 			printf(" atime=%lld mtime=%lld",
-			    (long long)msg.em_event_data.setutimes.atime.tv_sec,
-			    (long long)msg.em_event_data.setutimes.mtime.tv_sec);
+			    (long long)msg->em_event_data.setutimes.atime.tv_sec,
+			    (long long)msg->em_event_data.setutimes.mtime.tv_sec);
 			break;
 		case OES_EVENT_NOTIFY_SETEXTATTR:
 		case OES_EVENT_AUTH_SETEXTATTR:
 			printf(" ns=%d name=%s",
-			    msg.em_event_data.setextattr.attrnamespace,
-			    msg.em_event_data.setextattr.name);
+			    msg->em_event_data.setextattr.attrnamespace,
+			    oes_msg_string(msg,
+			    msg->em_event_data.setextattr.name_off));
 			break;
 		case OES_EVENT_NOTIFY_SIGNAL:
 			printf(" signum=%d target_pid=%d",
-			    msg.em_event_data.signal.signum,
-			    msg.em_event_data.signal.target.ep_pid);
+			    msg->em_event_data.signal.signum,
+			    msg->em_event_data.signal.target.ep_pid);
 			break;
 		case OES_EVENT_AUTH_PTRACE:
 		case OES_EVENT_NOTIFY_PTRACE:
 			printf(" target_pid=%d",
-			    msg.em_event_data.ptrace.target.ep_pid);
+			    msg->em_event_data.ptrace.target.ep_pid);
 			break;
 		case OES_EVENT_NOTIFY_SETUID:
-			printf(" uid=%d", msg.em_event_data.setuid.uid);
+			printf(" uid=%d", msg->em_event_data.setuid.uid);
 			break;
 		case OES_EVENT_NOTIFY_SETGID:
-			printf(" gid=%d", msg.em_event_data.setgid.gid);
+			printf(" gid=%d", msg->em_event_data.setgid.gid);
 			break;
 		/* SOCKET_*, REBOOT, SYSCTL, KENV are NOTIFY-only (NOSLEEP hooks) */
 		case OES_EVENT_NOTIFY_SOCKET_CONNECT:
 			printf(" domain=%d type=%d proto=%d",
-			    msg.em_event_data.socket_connect.socket.es_domain,
-			    msg.em_event_data.socket_connect.socket.es_type,
-			    msg.em_event_data.socket_connect.socket.es_protocol);
-			print_sockaddr(&msg.em_event_data.socket_connect.address);
+			    msg->em_event_data.socket_connect.socket.es_domain,
+			    msg->em_event_data.socket_connect.socket.es_type,
+			    msg->em_event_data.socket_connect.socket.es_protocol);
+			print_sockaddr(&msg->em_event_data.socket_connect.address);
 			break;
 		case OES_EVENT_NOTIFY_SOCKET_BIND:
 			printf(" domain=%d type=%d proto=%d",
-			    msg.em_event_data.socket_bind.socket.es_domain,
-			    msg.em_event_data.socket_bind.socket.es_type,
-			    msg.em_event_data.socket_bind.socket.es_protocol);
-			print_sockaddr(&msg.em_event_data.socket_bind.address);
+			    msg->em_event_data.socket_bind.socket.es_domain,
+			    msg->em_event_data.socket_bind.socket.es_type,
+			    msg->em_event_data.socket_bind.socket.es_protocol);
+			print_sockaddr(&msg->em_event_data.socket_bind.address);
 			break;
 		case OES_EVENT_NOTIFY_SOCKET_LISTEN:
 			printf(" domain=%d type=%d proto=%d",
-			    msg.em_event_data.socket_listen.socket.es_domain,
-			    msg.em_event_data.socket_listen.socket.es_type,
-			    msg.em_event_data.socket_listen.socket.es_protocol);
+			    msg->em_event_data.socket_listen.socket.es_domain,
+			    msg->em_event_data.socket_listen.socket.es_type,
+			    msg->em_event_data.socket_listen.socket.es_protocol);
 			break;
 		case OES_EVENT_NOTIFY_REBOOT:
-			printf(" howto=0x%x", msg.em_event_data.reboot.howto);
+			printf(" howto=0x%x", msg->em_event_data.reboot.howto);
 			break;
 		case OES_EVENT_NOTIFY_SYSCTL:
 			printf(" name=%s op=%s",
-			    msg.em_event_data.sysctl.name,
-			    msg.em_event_data.sysctl.op ? "write" : "read");
+			    oes_msg_string(msg,
+			    msg->em_event_data.sysctl.name_off),
+			    msg->em_event_data.sysctl.op ? "write" : "read");
 			break;
 		case OES_EVENT_NOTIFY_KENV:
 			printf(" name=%s op=%s",
-			    msg.em_event_data.kenv.name,
-			    msg.em_event_data.kenv.op == 1 ? "set" :
-			    msg.em_event_data.kenv.op == 2 ? "unset" : "get");
+			    oes_msg_string(msg,
+			    msg->em_event_data.kenv.name_off),
+			    msg->em_event_data.kenv.op == 1 ? "set" :
+			    msg->em_event_data.kenv.op == 2 ? "unset" : "get");
 			break;
 		case OES_EVENT_AUTH_SWAPON:
 		case OES_EVENT_NOTIFY_SWAPON:
-			printf(" path=%s", msg.em_event_data.swapon.file.ef_path);
+			printf(" path=%s", oes_file_path(msg, &msg->em_event_data.swapon.file));
 			break;
 		case OES_EVENT_AUTH_SWAPOFF:
 		case OES_EVENT_NOTIFY_SWAPOFF:
-			printf(" path=%s", msg.em_event_data.swapoff.file.ef_path);
+			printf(" path=%s", oes_file_path(msg, &msg->em_event_data.swapoff.file));
 			break;
 		default:
 			break;
@@ -483,26 +504,29 @@ int main(int argc, char **argv)
 
 		if (verbose) {
 			printf(" ruid=%d suid=%d rgid=%d sgid=%d auid=%d asid=%u",
-			    msg.em_process.ep_ruid,
-			    msg.em_process.ep_suid,
-			    msg.em_process.ep_rgid,
-			    msg.em_process.ep_sgid,
-			    msg.em_process.ep_auid,
-			    msg.em_process.ep_asid);
+			    msg->em_process.ep_ruid,
+			    msg->em_process.ep_suid,
+			    msg->em_process.ep_rgid,
+			    msg->em_process.ep_sgid,
+			    msg->em_process.ep_auid,
+			    msg->em_process.ep_asid);
 		}
 
 		printf("\n");
 
 		/* In AUTH mode, send allow response */
-		if (use_auth_mode && OES_EVENT_IS_AUTH(msg.em_event)) {
+		if (use_auth_mode && OES_EVENT_IS_AUTH(msg->em_event)) {
 			oes_response_t resp;
-			resp.er_id = msg.em_id;
+			resp.er_id = msg->em_id;
 			resp.er_result = OES_AUTH_ALLOW;
 			resp.er_flags = 0;
 			if (write(fd, &resp, sizeof(resp)) < 0) {
 				perror("write response");
 			}
 		}
+		} /* end const char *path scope */
+		batch_off += msg->em_size;
+	    } /* end batch iteration */
 	}
 
 	if (n < 0 && errno != EAGAIN) {

@@ -294,11 +294,12 @@ abi_name(uint8_t abi)
 }
 
 /*
- * Emit process info as JSON object
+ * Emit process info as JSON object.
+ * msg is needed to resolve string table offsets.
  */
 static void
-emit_process(FILE *fp, int depth, const char *key, const oes_process_t *proc,
-    bool comma)
+emit_process(FILE *fp, int depth, const char *key, const oes_message_t *msg,
+    const oes_process_t *proc, bool comma)
 {
 
 	obj_open(fp, depth, key, false);
@@ -355,12 +356,15 @@ emit_process(FILE *fp, int depth, const char *key, const oes_process_t *proc,
 	/* Jail */
 	json_kv_int(fp, depth + 1, "jid", proc->ep_jid, true);
 	if (proc->ep_jid > 0)
-		json_kv_str(fp, depth + 1, "jailname", proc->ep_jailname, true);
+		json_kv_str(fp, depth + 1, "jailname",
+		    oes_msg_string(msg, proc->ep_jailname_off), true);
 
-	/* Paths and names */
+	/* Names and paths */
 	json_kv_str(fp, depth + 1, "comm", proc->ep_comm, true);
-	json_kv_str(fp, depth + 1, "path", proc->ep_path, true);
-	json_kv_str(fp, depth + 1, "cwd", proc->ep_cwd, true);
+	json_kv_str(fp, depth + 1, "path",
+	    oes_msg_string(msg, proc->ep_path_off), true);
+	json_kv_str(fp, depth + 1, "cwd",
+	    oes_msg_string(msg, proc->ep_cwd_off), true);
 	json_kv_str(fp, depth + 1, "tty", proc->ep_tty, true);
 	json_kv_str(fp, depth + 1, "login", proc->ep_login, true);
 
@@ -393,8 +397,8 @@ emit_process(FILE *fp, int depth, const char *key, const oes_process_t *proc,
  * Emit file info as JSON object
  */
 static void
-emit_file(FILE *fp, int depth, const char *key, const oes_file_t *file,
-    bool comma)
+emit_file(FILE *fp, int depth, const char *key, const oes_message_t *msg,
+    const oes_file_t *file, bool comma)
 {
 	const char *type_name;
 
@@ -416,7 +420,8 @@ emit_file(FILE *fp, int depth, const char *key, const oes_file_t *file,
 	json_kv_uint(fp, depth + 1, "token_dev", file->ef_token.eft_dev, true);
 
 	/* Identity */
-	json_kv_str(fp, depth + 1, "path", file->ef_path, true);
+	json_kv_str(fp, depth + 1, "path",
+	    oes_msg_string(msg, file->ef_path_off), true);
 	json_kv_str(fp, depth + 1, "type", type_name, true);
 	json_kv_uint(fp, depth + 1, "ino", file->ef_ino, true);
 	json_kv_uint(fp, depth + 1, "dev", file->ef_dev, true);
@@ -505,9 +510,9 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_EXEC:
 	case OES_EVENT_NOTIFY_EXEC:
 		obj_open(fp, depth, "event_data", false);
-		emit_process(fp, depth + 1, "target",
+		emit_process(fp, depth + 1, "target", msg,
 		    &msg->em_event_data.exec.target, true);
-		emit_file(fp, depth + 1, "executable",
+		emit_file(fp, depth + 1, "executable", msg,
 		    &msg->em_event_data.exec.executable, true);
 		json_kv_int(fp, depth + 1, "argc",
 		    msg->em_event_data.exec.argc, true);
@@ -528,17 +533,20 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 		 * Use json_escape_n for bounded access into the args buffer.
 		 */
 		{
-			const char *args = msg->em_event_data.exec.args;
+			uint32_t argv_off = msg->em_event_data.exec.argv_off;
 			uint32_t argv_len = msg->em_event_data.exec.argv_len;
+			uint32_t envp_off = msg->em_event_data.exec.envp_off;
 			uint32_t envp_len = msg->em_event_data.exec.envp_len;
-			bool argv_valid = argv_len > 0 &&
-			    argv_len <= OES_EXEC_ARGS_MAX;
-			bool envp_valid = envp_len > 0 &&
-			    argv_len + envp_len <= OES_EXEC_ARGS_MAX;
+			const char *argv_data = (argv_off > 0 &&
+			    argv_off + argv_len <= msg->em_size) ?
+			    (const char *)msg + argv_off : NULL;
+			const char *envp_data = (envp_off > 0 &&
+			    envp_off + envp_len <= msg->em_size) ?
+			    (const char *)msg + envp_off : NULL;
 
 			obj_open(fp, depth + 1, "argv", true);
-			if (argv_valid) {
-				const char *p = args;
+			if (argv_data != NULL && argv_len > 0) {
+				const char *p = argv_data;
 				const char *end = p + argv_len;
 				size_t slen;
 
@@ -554,8 +562,8 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 			obj_close(fp, depth + 1, true, true);
 
 			obj_open(fp, depth + 1, "envp", true);
-			if (envp_valid) {
-				const char *p = args + argv_len;
+			if (envp_data != NULL && envp_len > 0) {
+				const char *p = envp_data;
 				const char *end = p + envp_len;
 				size_t slen;
 
@@ -578,7 +586,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_OPEN:
 	case OES_EVENT_NOTIFY_OPEN:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "file",
+		emit_file(fp, depth + 1, "file", msg,
 		    &msg->em_event_data.open.file, true);
 		json_kv_int(fp, depth + 1, "flags",
 		    msg->em_event_data.open.flags, true);
@@ -591,9 +599,9 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_CREATE:
 	case OES_EVENT_NOTIFY_CREATE:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "dir",
+		emit_file(fp, depth + 1, "dir", msg,
 		    &msg->em_event_data.create.dir, true);
-		emit_file(fp, depth + 1, "file",
+		emit_file(fp, depth + 1, "file", msg,
 		    &msg->em_event_data.create.file, true);
 		json_kv_uint(fp, depth + 1, "mode",
 		    msg->em_event_data.create.mode, false);
@@ -604,9 +612,9 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_UNLINK:
 	case OES_EVENT_NOTIFY_UNLINK:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "dir",
+		emit_file(fp, depth + 1, "dir", msg,
 		    &msg->em_event_data.unlink.dir, true);
-		emit_file(fp, depth + 1, "file",
+		emit_file(fp, depth + 1, "file", msg,
 		    &msg->em_event_data.unlink.file, false);
 		obj_close(fp, depth, false, false);
 		break;
@@ -615,14 +623,15 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_RENAME:
 	case OES_EVENT_NOTIFY_RENAME:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "src_dir",
+		emit_file(fp, depth + 1, "src_dir", msg,
 		    &msg->em_event_data.rename.src_dir, true);
-		emit_file(fp, depth + 1, "src_file",
+		emit_file(fp, depth + 1, "src_file", msg,
 		    &msg->em_event_data.rename.src_file, true);
-		emit_file(fp, depth + 1, "dst_dir",
+		emit_file(fp, depth + 1, "dst_dir", msg,
 		    &msg->em_event_data.rename.dst_dir, true);
 		json_kv_str(fp, depth + 1, "dst_name",
-		    msg->em_event_data.rename.dst_name, false);
+		    oes_msg_string(msg, msg->em_event_data.rename.dst_name_off),
+		    false);
 		obj_close(fp, depth, false, false);
 		break;
 
@@ -630,12 +639,13 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_LINK:
 	case OES_EVENT_NOTIFY_LINK:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "target",
+		emit_file(fp, depth + 1, "target", msg,
 		    &msg->em_event_data.link.target, true);
-		emit_file(fp, depth + 1, "dir",
+		emit_file(fp, depth + 1, "dir", msg,
 		    &msg->em_event_data.link.dir, true);
 		json_kv_str(fp, depth + 1, "name",
-		    msg->em_event_data.link.name, false);
+		    oes_msg_string(msg, msg->em_event_data.link.name_off),
+		    false);
 		obj_close(fp, depth, false, false);
 		break;
 
@@ -643,12 +653,13 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_MOUNT:
 	case OES_EVENT_NOTIFY_MOUNT:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "mountpoint",
+		emit_file(fp, depth + 1, "mountpoint", msg,
 		    &msg->em_event_data.mount.mountpoint, true);
 		json_kv_str(fp, depth + 1, "fstype",
 		    msg->em_event_data.mount.fstype, true);
 		json_kv_str(fp, depth + 1, "source",
-		    msg->em_event_data.mount.source, true);
+		    oes_msg_string(msg, msg->em_event_data.mount.source_off),
+		    true);
 		json_kv_uint(fp, depth + 1, "flags",
 		    msg->em_event_data.mount.flags, false);
 		obj_close(fp, depth, false, false);
@@ -658,7 +669,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_KLDLOAD:
 	case OES_EVENT_NOTIFY_KLDLOAD:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "file",
+		emit_file(fp, depth + 1, "file", msg,
 		    &msg->em_event_data.kldload.file, true);
 		json_kv_str(fp, depth + 1, "name",
 		    msg->em_event_data.kldload.name, false);
@@ -669,7 +680,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_MMAP:
 	case OES_EVENT_NOTIFY_MMAP:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "file",
+		emit_file(fp, depth + 1, "file", msg,
 		    &msg->em_event_data.mmap.file, true);
 		json_kv_uint(fp, depth + 1, "addr",
 		    msg->em_event_data.mmap.addr, true);
@@ -686,7 +697,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_MPROTECT:
 	case OES_EVENT_NOTIFY_MPROTECT:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "file",
+		emit_file(fp, depth + 1, "file", msg,
 		    &msg->em_event_data.mprotect.file, true);
 		json_kv_int(fp, depth + 1, "prot",
 		    msg->em_event_data.mprotect.prot, false);
@@ -697,7 +708,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_CHDIR:
 	case OES_EVENT_NOTIFY_CHDIR:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "dir",
+		emit_file(fp, depth + 1, "dir", msg,
 		    &msg->em_event_data.chdir.dir, false);
 		obj_close(fp, depth, false, false);
 		break;
@@ -706,7 +717,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_CHROOT:
 	case OES_EVENT_NOTIFY_CHROOT:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "dir",
+		emit_file(fp, depth + 1, "dir", msg,
 		    &msg->em_event_data.chroot.dir, false);
 		obj_close(fp, depth, false, false);
 		break;
@@ -715,12 +726,13 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_SETEXTATTR:
 	case OES_EVENT_NOTIFY_SETEXTATTR:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "file",
+		emit_file(fp, depth + 1, "file", msg,
 		    &msg->em_event_data.setextattr.file, true);
 		json_kv_int(fp, depth + 1, "namespace",
 		    msg->em_event_data.setextattr.attrnamespace, true);
 		json_kv_str(fp, depth + 1, "name",
-		    msg->em_event_data.setextattr.name, false);
+		    oes_msg_string(msg, msg->em_event_data.setextattr.name_off),
+		    false);
 		obj_close(fp, depth, false, false);
 		break;
 
@@ -728,7 +740,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_PTRACE:
 	case OES_EVENT_NOTIFY_PTRACE:
 		obj_open(fp, depth, "event_data", false);
-		emit_process(fp, depth + 1, "target",
+		emit_process(fp, depth + 1, "target", msg,
 		    &msg->em_event_data.ptrace.target, true);
 		json_kv_int(fp, depth + 1, "request",
 		    msg->em_event_data.ptrace.request, false);
@@ -739,7 +751,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_ACCESS:
 	case OES_EVENT_NOTIFY_ACCESS:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "file",
+		emit_file(fp, depth + 1, "file", msg,
 		    &msg->em_event_data.access.file, true);
 		json_kv_int(fp, depth + 1, "accmode",
 		    msg->em_event_data.access.accmode, false);
@@ -752,7 +764,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_WRITE:
 	case OES_EVENT_NOTIFY_WRITE:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "file",
+		emit_file(fp, depth + 1, "file", msg,
 		    &msg->em_event_data.rw.file, false);
 		obj_close(fp, depth, false, false);
 		break;
@@ -761,10 +773,11 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_LOOKUP:
 	case OES_EVENT_NOTIFY_LOOKUP:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "dir",
+		emit_file(fp, depth + 1, "dir", msg,
 		    &msg->em_event_data.lookup.dir, true);
 		json_kv_str(fp, depth + 1, "name",
-		    msg->em_event_data.lookup.name, false);
+		    oes_msg_string(msg, msg->em_event_data.lookup.name_off),
+		    false);
 		obj_close(fp, depth, false, false);
 		break;
 
@@ -772,7 +785,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_SETMODE:
 	case OES_EVENT_NOTIFY_SETMODE:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "file",
+		emit_file(fp, depth + 1, "file", msg,
 		    &msg->em_event_data.setmode.file, true);
 		json_kv_uint(fp, depth + 1, "mode",
 		    msg->em_event_data.setmode.mode, false);
@@ -783,7 +796,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_SETOWNER:
 	case OES_EVENT_NOTIFY_SETOWNER:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "file",
+		emit_file(fp, depth + 1, "file", msg,
 		    &msg->em_event_data.setowner.file, true);
 		json_kv_int(fp, depth + 1, "uid",
 		    msg->em_event_data.setowner.uid, true);
@@ -796,7 +809,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_SETFLAGS:
 	case OES_EVENT_NOTIFY_SETFLAGS:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "file",
+		emit_file(fp, depth + 1, "file", msg,
 		    &msg->em_event_data.setflags.file, true);
 		json_kv_uint(fp, depth + 1, "flags",
 		    msg->em_event_data.setflags.flags, false);
@@ -807,7 +820,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_SETUTIMES:
 	case OES_EVENT_NOTIFY_SETUTIMES:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "file",
+		emit_file(fp, depth + 1, "file", msg,
 		    &msg->em_event_data.setutimes.file, true);
 		json_kv_int(fp, depth + 1, "atime_sec",
 		    msg->em_event_data.setutimes.atime.tv_sec, true);
@@ -832,7 +845,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_RELABEL:
 	case OES_EVENT_NOTIFY_RELABEL:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "file",
+		emit_file(fp, depth + 1, "file", msg,
 		    &msg->em_event_data.stat.file, false);
 		obj_close(fp, depth, false, false);
 		break;
@@ -841,7 +854,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_READDIR:
 	case OES_EVENT_NOTIFY_READDIR:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "dir",
+		emit_file(fp, depth + 1, "dir", msg,
 		    &msg->em_event_data.readdir.dir, false);
 		obj_close(fp, depth, false, false);
 		break;
@@ -854,12 +867,13 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_LISTEXTATTR:
 	case OES_EVENT_NOTIFY_LISTEXTATTR:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "file",
+		emit_file(fp, depth + 1, "file", msg,
 		    &msg->em_event_data.getextattr.file, true);
 		json_kv_int(fp, depth + 1, "namespace",
 		    msg->em_event_data.getextattr.attrnamespace, true);
 		json_kv_str(fp, depth + 1, "name",
-		    msg->em_event_data.getextattr.name, false);
+		    oes_msg_string(msg, msg->em_event_data.getextattr.name_off),
+		    false);
 		obj_close(fp, depth, false, false);
 		break;
 
@@ -871,7 +885,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_DELETEACL:
 	case OES_EVENT_NOTIFY_DELETEACL:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "file",
+		emit_file(fp, depth + 1, "file", msg,
 		    &msg->em_event_data.getacl.file, true);
 		json_kv_int(fp, depth + 1, "acl_type",
 		    msg->em_event_data.getacl.type, false);
@@ -882,7 +896,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_SWAPON:
 	case OES_EVENT_NOTIFY_SWAPON:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "file",
+		emit_file(fp, depth + 1, "file", msg,
 		    &msg->em_event_data.swapon.file, false);
 		obj_close(fp, depth, false, false);
 		break;
@@ -891,7 +905,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_AUTH_SWAPOFF:
 	case OES_EVENT_NOTIFY_SWAPOFF:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "file",
+		emit_file(fp, depth + 1, "file", msg,
 		    &msg->em_event_data.swapoff.file, false);
 		obj_close(fp, depth, false, false);
 		break;
@@ -907,14 +921,14 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 
 	case OES_EVENT_NOTIFY_FORK:
 		obj_open(fp, depth, "event_data", false);
-		emit_process(fp, depth + 1, "child",
+		emit_process(fp, depth + 1, "child", msg,
 		    &msg->em_event_data.fork.child, false);
 		obj_close(fp, depth, false, false);
 		break;
 
 	case OES_EVENT_NOTIFY_SIGNAL:
 		obj_open(fp, depth, "event_data", false);
-		emit_process(fp, depth + 1, "target",
+		emit_process(fp, depth + 1, "target", msg,
 		    &msg->em_event_data.signal.target, true);
 		json_kv_int(fp, depth + 1, "signum",
 		    msg->em_event_data.signal.signum, false);
@@ -979,7 +993,8 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_NOTIFY_SYSCTL:
 		obj_open(fp, depth, "event_data", false);
 		json_kv_str(fp, depth + 1, "name",
-		    msg->em_event_data.sysctl.name, true);
+		    oes_msg_string(msg, msg->em_event_data.sysctl.name_off),
+		    true);
 		json_kv_int(fp, depth + 1, "op",
 		    msg->em_event_data.sysctl.op, false);
 		obj_close(fp, depth, false, false);
@@ -988,7 +1003,8 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	case OES_EVENT_NOTIFY_KENV:
 		obj_open(fp, depth, "event_data", false);
 		json_kv_str(fp, depth + 1, "name",
-		    msg->em_event_data.kenv.name, true);
+		    oes_msg_string(msg, msg->em_event_data.kenv.name_off),
+		    true);
 		json_kv_int(fp, depth + 1, "op",
 		    msg->em_event_data.kenv.op, false);
 		obj_close(fp, depth, false, false);
@@ -1003,12 +1019,13 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 
 	case OES_EVENT_NOTIFY_UNMOUNT:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "mountpoint",
+		emit_file(fp, depth + 1, "mountpoint", msg,
 		    &msg->em_event_data.unmount.mountpoint, true);
 		json_kv_str(fp, depth + 1, "fstype",
 		    msg->em_event_data.unmount.fstype, true);
 		json_kv_str(fp, depth + 1, "source",
-		    msg->em_event_data.unmount.source, true);
+		    oes_msg_string(msg, msg->em_event_data.unmount.source_off),
+		    true);
 		json_kv_uint(fp, depth + 1, "flags",
 		    msg->em_event_data.unmount.flags, false);
 		obj_close(fp, depth, false, false);
@@ -1016,7 +1033,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 
 	case OES_EVENT_NOTIFY_KLDUNLOAD:
 		obj_open(fp, depth, "event_data", false);
-		emit_file(fp, depth + 1, "file",
+		emit_file(fp, depth + 1, "file", msg,
 		    &msg->em_event_data.kldunload.file, true);
 		json_kv_str(fp, depth + 1, "name",
 		    msg->em_event_data.kldunload.name, false);
@@ -1041,7 +1058,8 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 		json_kv_str(fp, depth + 1, "fstype",
 		    msg->em_event_data.mount_stat.fstype, true);
 		json_kv_str(fp, depth + 1, "fspath",
-		    msg->em_event_data.mount_stat.fspath, false);
+		    oes_msg_string(msg, msg->em_event_data.mount_stat.fspath_off),
+		    false);
 		obj_close(fp, depth, false, false);
 		break;
 
@@ -1054,7 +1072,7 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 
 	case OES_EVENT_NOTIFY_PROC_SCHED:
 		obj_open(fp, depth, "event_data", false);
-		emit_process(fp, depth + 1, "target",
+		emit_process(fp, depth + 1, "target", msg,
 		    &msg->em_event_data.proc_sched.target, false);
 		obj_close(fp, depth, false, false);
 		break;
@@ -1305,7 +1323,7 @@ handle_event(oes_client_t *client __unused, const oes_message_t *msg,
 		    msg->em_deadline.tv_nsec, true);
 	}
 
-	emit_process(fp, d, "process", &msg->em_process, true);
+	emit_process(fp, d, "process", msg, &msg->em_process, true);
 	emit_event_data(fp, d, msg);
 
 	obj_close(fp, 0, false, false);

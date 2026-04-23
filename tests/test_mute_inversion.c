@@ -16,23 +16,21 @@
 #include <unistd.h>
 
 #include <security/oes/oes.h>
+#include "test_common.h"
 
 static int
 count_events(int fd, pid_t target_pid, int timeout_ms)
 {
-	struct pollfd pfd;
 	struct timespec start;
 	int count = 0;
-
-	pfd.fd = fd;
-	pfd.events = POLLIN;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	clock_gettime(CLOCK_MONOTONIC, &start);
 
 	while (1) {
 		struct timespec now;
 		long elapsed_ms;
-		oes_message_t msg;
-		ssize_t n;
+		int remaining;
 
 		clock_gettime(CLOCK_MONOTONIC, &now);
 		elapsed_ms = (now.tv_sec - start.tv_sec) * 1000L +
@@ -40,18 +38,14 @@ count_events(int fd, pid_t target_pid, int timeout_ms)
 		if (elapsed_ms > timeout_ms)
 			break;
 
-		if (poll(&pfd, 1, 50) > 0 && (pfd.revents & POLLIN)) {
-			n = read(fd, &msg, sizeof(msg));
-			if (n < 0) {
-				if (errno == EAGAIN || errno == EWOULDBLOCK)
-					continue;
-				break;
-			}
-			if ((size_t)n == sizeof(msg) &&
-			    msg.em_process.ep_pid == target_pid) {
-				count++;
-			}
-		}
+		remaining = timeout_ms - (int)elapsed_ms;
+		if (remaining > 50)
+			remaining = 50;
+
+		if (test_wait_event(fd, msg, remaining) != 0)
+			continue;
+		if (msg->em_process.ep_pid == target_pid)
+			count++;
 	}
 
 	return (count);

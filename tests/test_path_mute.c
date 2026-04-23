@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include <security/oes/oes.h>
+#include "test_common.h"
 
 static int
 respond_allow(int fd, const oes_message_t *msg)
@@ -51,29 +52,30 @@ wait_for_exec(int fd, pid_t pid, const char *path, int timeout_ms,
 			break;
 
 		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			oes_message_t msg;
-			ssize_t n = read(fd, &msg, sizeof(msg));
+			test_msg_buf _buf;
+			oes_message_t *msg = &_buf.msg;
+			ssize_t n = read(fd, msg, OES_MSG_MAX_SIZE);
 			if (n < 0) {
 				if (errno == EAGAIN || errno == EWOULDBLOCK)
 					continue;
 				perror("read");
 				return (-1);
 			}
-			if ((size_t)n != sizeof(msg))
+			if (n < (ssize_t)sizeof(oes_message_t))
 				continue;
 
-			(void)respond_allow(fd, &msg);
+			(void)respond_allow(fd, msg);
 
-			if (msg.em_event != OES_EVENT_AUTH_EXEC ||
-			    msg.em_process.ep_pid != pid)
+			if (msg->em_event != OES_EVENT_AUTH_EXEC ||
+			    msg->em_process.ep_pid != pid)
 				continue;
 
 			fprintf(stderr, "exec event: got path '%s', want '%s'\n",
-			    msg.em_event_data.exec.executable.ef_path,
+			    oes_msg_string(msg, msg->em_event_data.exec.executable.ef_path_off),
 			    path ? path : "(null)");
 
 			if (path != NULL &&
-			    strcmp(msg.em_event_data.exec.executable.ef_path, path) != 0)
+			    strcmp(oes_msg_string(msg, msg->em_event_data.exec.executable.ef_path_off), path) != 0)
 				return (-1);
 
 			return (expect_event ? 0 : 1);
@@ -105,25 +107,26 @@ wait_for_link(int fd, pid_t pid, const char *name, int timeout_ms,
 			break;
 
 		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			oes_message_t msg;
-			ssize_t n = read(fd, &msg, sizeof(msg));
+			test_msg_buf _buf;
+			oes_message_t *msg = &_buf.msg;
+			ssize_t n = read(fd, msg, OES_MSG_MAX_SIZE);
 			if (n < 0) {
 				if (errno == EAGAIN || errno == EWOULDBLOCK)
 					continue;
 				perror("read");
 				return (-1);
 			}
-			if ((size_t)n != sizeof(msg))
+			if (n < (ssize_t)sizeof(oes_message_t))
 				continue;
 
-			(void)respond_allow(fd, &msg);
+			(void)respond_allow(fd, msg);
 
-			if (msg.em_event != OES_EVENT_AUTH_LINK ||
-			    msg.em_process.ep_pid != pid)
+			if (msg->em_event != OES_EVENT_AUTH_LINK ||
+			    msg->em_process.ep_pid != pid)
 				continue;
 
 			if (name != NULL &&
-			    strcmp(msg.em_event_data.link.name, name) != 0)
+			    strcmp(oes_msg_string(msg, msg->em_event_data.link.name_off), name) != 0)
 				return (-1);
 
 			return (expect_event ? 0 : 1);

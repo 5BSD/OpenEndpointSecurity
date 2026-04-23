@@ -16,6 +16,7 @@
 #include <unistd.h>
 
 #include <security/oes/oes.h>
+#include "test_common.h"
 
 /*
  * Test retrieving argv from an AUTH_EXEC event.
@@ -27,7 +28,8 @@ test_embedded_argv(void)
 	struct oes_mode_args mode;
 	struct oes_subscribe_args sub;
 	oes_event_type_t events[] = { OES_EVENT_AUTH_EXEC };
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	oes_response_t resp;
 	struct pollfd pfd;
 	pid_t pid;
@@ -81,9 +83,9 @@ test_embedded_argv(void)
 	pfd.events = POLLIN;
 
 	if (poll(&pfd, 1, 3000) > 0 && (pfd.revents & POLLIN)) {
-		n = read(fd, &msg, sizeof(msg));
-		if (n == sizeof(msg) && msg.em_event == OES_EVENT_AUTH_EXEC) {
-			oes_event_exec_t *exec = &msg.em_event_data.exec;
+		n = read(fd, msg, OES_MSG_MAX_SIZE);
+		if (n >= (ssize_t)sizeof(oes_message_t) && msg->em_event == OES_EVENT_AUTH_EXEC) {
+			oes_event_exec_t *exec = &msg->em_event_data.exec;
 			got_event = 1;
 
 			printf("    INFO: argc=%u, argv_len=%u, envp_len=%u, flags=0x%x\n",
@@ -96,10 +98,10 @@ test_embedded_argv(void)
 				printf("    INFO: Got %u bytes of argv data\n",
 				    exec->argv_len);
 				while (pos < exec->argv_len && argc < 10) {
-					size_t len = strlen(exec->args + pos);
+					size_t len = strlen((const char *)msg + exec->argv_off + pos);
 					if (len > 0) {
 						printf("    INFO: argv[%d] = '%s'\n",
-						    argc, exec->args + pos);
+						    argc, (const char *)msg + exec->argv_off + pos);
 						argc++;
 					}
 					pos += len + 1;
@@ -118,7 +120,7 @@ test_embedded_argv(void)
 
 			/* Allow the exec */
 			memset(&resp, 0, sizeof(resp));
-			resp.er_id = msg.em_id;
+			resp.er_id = msg->em_id;
 			resp.er_result = OES_AUTH_ALLOW;
 			(void)write(fd, &resp, sizeof(resp));
 		}
@@ -145,7 +147,8 @@ test_embedded_envp(void)
 	struct oes_mode_args mode;
 	struct oes_subscribe_args sub;
 	oes_event_type_t events[] = { OES_EVENT_AUTH_EXEC };
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	oes_response_t resp;
 	struct pollfd pfd;
 	pid_t pid;
@@ -200,9 +203,9 @@ test_embedded_envp(void)
 	pfd.events = POLLIN;
 
 	if (poll(&pfd, 1, 3000) > 0 && (pfd.revents & POLLIN)) {
-		n = read(fd, &msg, sizeof(msg));
-		if (n == sizeof(msg) && msg.em_event == OES_EVENT_AUTH_EXEC) {
-			oes_event_exec_t *exec = &msg.em_event_data.exec;
+		n = read(fd, msg, OES_MSG_MAX_SIZE);
+		if (n >= (ssize_t)sizeof(oes_message_t) && msg->em_event == OES_EVENT_AUTH_EXEC) {
+			oes_event_exec_t *exec = &msg->em_event_data.exec;
 			got_event = 1;
 
 			printf("    INFO: argc=%u, envc=%u, argv_len=%u, envp_len=%u\n",
@@ -216,11 +219,11 @@ test_embedded_envp(void)
 				printf("    INFO: Got %u bytes of envp data\n",
 				    exec->envp_len);
 				while (pos < exec->argv_len + exec->envp_len && envc < 100) {
-					size_t len = strlen(exec->args + pos);
+					size_t len = strlen((const char *)msg + exec->argv_off + pos);
 					if (len > 0) {
-						if (strstr(exec->args + pos, "OES_TEST_VAR=") != NULL) {
+						if (strstr((const char *)msg + exec->argv_off + pos, "OES_TEST_VAR=") != NULL) {
 							printf("    INFO: Found test var: %s\n",
-							    exec->args + pos);
+							    (const char *)msg + exec->argv_off + pos);
 							found_test_var = 1;
 						}
 						envc++;
@@ -241,7 +244,7 @@ test_embedded_envp(void)
 
 			/* Allow the exec */
 			memset(&resp, 0, sizeof(resp));
-			resp.er_id = msg.em_id;
+			resp.er_id = msg->em_id;
 			resp.er_result = OES_AUTH_ALLOW;
 			(void)write(fd, &resp, sizeof(resp));
 		}
@@ -268,7 +271,8 @@ test_notify_embedded_args(void)
 	struct oes_mode_args mode;
 	struct oes_subscribe_args sub;
 	oes_event_type_t events[] = { OES_EVENT_NOTIFY_EXEC };
-	oes_message_t msg;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 	struct pollfd pfd;
 	pid_t pid;
 	ssize_t n;
@@ -319,9 +323,9 @@ test_notify_embedded_args(void)
 	pfd.events = POLLIN;
 
 	if (poll(&pfd, 1, 3000) > 0 && (pfd.revents & POLLIN)) {
-		n = read(fd, &msg, sizeof(msg));
-		if (n == sizeof(msg) && msg.em_event == OES_EVENT_NOTIFY_EXEC) {
-			oes_event_exec_t *exec = &msg.em_event_data.exec;
+		n = read(fd, msg, OES_MSG_MAX_SIZE);
+		if (n >= (ssize_t)sizeof(oes_message_t) && msg->em_event == OES_EVENT_NOTIFY_EXEC) {
+			oes_event_exec_t *exec = &msg->em_event_data.exec;
 			got_event = 1;
 
 			printf("    INFO: NOTIFY argc=%u, argv_len=%u\n",
@@ -331,10 +335,10 @@ test_notify_embedded_args(void)
 				size_t pos = 0;
 				int argc = 0;
 				while (pos < exec->argv_len && argc < 5) {
-					size_t len = strlen(exec->args + pos);
+					size_t len = strlen((const char *)msg + exec->argv_off + pos);
 					if (len > 0) {
 						printf("    INFO: argv[%d] = '%s'\n",
-						    argc, exec->args + pos);
+						    argc, (const char *)msg + exec->argv_off + pos);
 						argc++;
 					}
 					pos += len + 1;

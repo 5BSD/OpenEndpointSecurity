@@ -19,6 +19,7 @@
 #include <unistd.h>
 
 #include <security/oes/oes.h>
+#include "test_common.h"
 
 /* Modules to try - must be loadable and unloadable */
 static const char *test_modules[] = {
@@ -31,27 +32,18 @@ static const char *test_modules[] = {
 static int
 read_events(int fd, int *kldunload_seen, const char *expected_name)
 {
-	oes_message_t msg;
-	ssize_t n;
+	test_msg_buf _msg_buf;
+	oes_message_t *msg = &_msg_buf.msg;
 
 	for (;;) {
-		n = read(fd, &msg, sizeof(msg));
-		if (n < 0) {
-			if (errno == EAGAIN || errno == EWOULDBLOCK)
-				return (0);
-			perror("read");
-			return (-1);
-		}
-		if (n == 0)
+		if (test_wait_event(fd, msg, 10) != 0)
 			return (0);
-		if ((size_t)n != sizeof(msg))
-			continue;
 
-		if (msg.em_event == OES_EVENT_NOTIFY_KLDUNLOAD) {
+		if (msg->em_event == OES_EVENT_NOTIFY_KLDUNLOAD) {
 			fprintf(stderr, "  got NOTIFY_KLDUNLOAD: name=%s\n",
-			    msg.em_event_data.kldunload.name);
+			    msg->em_event_data.kldunload.name);
 			if (expected_name != NULL &&
-			    strcmp(msg.em_event_data.kldunload.name,
+			    strcmp(msg->em_event_data.kldunload.name,
 			    expected_name) == 0) {
 				*kldunload_seen = 1;
 			} else if (expected_name == NULL) {

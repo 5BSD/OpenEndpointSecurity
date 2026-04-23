@@ -42,7 +42,6 @@ extern struct sx proctree_lock;
 static uint64_t
 oes_proc_genid(struct proc *p)
 {
-
 	PROC_LOCK_ASSERT(p, MA_OWNED);
 
 	if (p->p_stats != NULL) {
@@ -133,6 +132,10 @@ oes_client_free(struct oes_client *ec)
 	TAILQ_FOREACH_SAFE(ep, &ec->ec_pending, ep_link, ep_tmp) {
 		TAILQ_REMOVE(&ec->ec_pending, ep, ep_link);
 		ec->ec_queue_count--;
+		if (ec->ec_queue_bytes >= ep->ep_msg.em_size)
+			ec->ec_queue_bytes -= ep->ep_msg.em_size;
+		else
+			ec->ec_queue_bytes = 0;
 
 		if (ep->ep_flags & EP_FLAG_AUTH) {
 			mtx_lock(&ep->ep_mtx);
@@ -496,7 +499,6 @@ void
 oes_client_get_mode(struct oes_client *ec, uint32_t *mode, uint32_t *timeout_ms,
     uint32_t *queue_size)
 {
-
 	EC_LOCK(ec);
 	if (mode != NULL)
 		*mode = ec->ec_mode;
@@ -510,7 +512,6 @@ oes_client_get_mode(struct oes_client *ec, uint32_t *mode, uint32_t *timeout_ms,
 int
 oes_client_set_timeout(struct oes_client *ec, uint32_t timeout_ms)
 {
-
 	/* Clamp to valid range */
 	if (timeout_ms < OES_MIN_TIMEOUT_MS)
 		timeout_ms = OES_MIN_TIMEOUT_MS;
@@ -528,7 +529,6 @@ oes_client_set_timeout(struct oes_client *ec, uint32_t timeout_ms)
 void
 oes_client_get_timeout(struct oes_client *ec, uint32_t *timeout_ms)
 {
-
 	EC_LOCK(ec);
 	if (timeout_ms != NULL)
 		*timeout_ms = ec->ec_timeout_ms;
@@ -1202,6 +1202,12 @@ oes_client_get_stats(struct oes_client *ec, struct oes_stats *stats)
 	/* Queue state */
 	stats->es_queue_current = ec->ec_queue_count;
 	stats->es_queue_max = ec->ec_queue_max;
+	stats->es_queue_bytes = ec->ec_queue_bytes;
+	stats->es_queue_highwater = ec->ec_queue_highwater;
+
+	/* Global counters */
+	stats->es_nosleep_drops = oes_softc.sc_nosleep_drops;
+	stats->es_alloc_failures = oes_softc.sc_alloc_failures;
 
 	/* Current configuration */
 	stats->es_mode = ec->ec_mode;
@@ -1984,7 +1990,8 @@ oes_client_is_gid_muted(struct oes_client *ec, gid_t gid)
 }
 
 void
-oes_fill_process(oes_process_t *ep, struct proc *p, struct ucred *cred_override)
+oes_fill_process(oes_process_t *ep, struct proc *p, struct ucred *cred_override,
+    struct oes_strtab *st, void *msg_base)
 {
 	struct ucred *cred;
 	struct session *sess;
@@ -1998,7 +2005,7 @@ oes_fill_process(oes_process_t *ep, struct proc *p, struct ucred *cred_override)
 
 	/* Process token: pid + start time for unique identity */
 	ep->ep_token.ept_id = p->p_pid;
-	ep->ep_token.ept_genid = oes_proc_genid(p);  /* sec*1000000 + usec */
+	ep->ep_token.ept_genid = oes_proc_genid(p);
 	if (p->p_stats != NULL) {
 		ep->ep_start_sec = p->p_stats->p_start.tv_sec;
 		ep->ep_start_usec = p->p_stats->p_start.tv_usec;
@@ -2039,7 +2046,6 @@ oes_fill_process(oes_process_t *ep, struct proc *p, struct ucred *cred_override)
 		}
 		sx_sunlock(&proctree_lock);
 	} else {
-		/* Lock busy - fall back to original parent (may differ from pcomm) */
 		ep->ep_ppid = p->p_oppid;
 	}
 
@@ -2053,37 +2059,35 @@ oes_fill_process(oes_process_t *ep, struct proc *p, struct ucred *cred_override)
 		ep->ep_rgid = cred->cr_rgid;
 		ep->ep_sgid = cred->cr_svgid;
 
-		/* Supplementary groups (store real count, copy up to 16) */
 		ep->ep_ngroups = cred->cr_ngroups;
 		ngroups = MIN(cred->cr_ngroups, 16);
 		for (i = 0; i < ngroups; i++)
 			ep->ep_groups[i] = cred->cr_groups[i];
 
-		/* Jail info */
+		/* Jail info - name goes to string table */
 		if (cred->cr_prison != NULL) {
 			ep->ep_jid = cred->cr_prison->pr_id;
 			ep->ep_flags |= EP_FLAG_JAILED;
-			strlcpy(ep->ep_jailname, cred->cr_prison->pr_hostname,
-			    sizeof(ep->ep_jailname));
+			if (st != NULL && msg_base != NULL)
+				ep->ep_jailname_off = oes_strtab_add(st,
+				    msg_base,
+				    cred->cr_prison->pr_hostname);
 		}
 
-		/* Capability mode */
 		if (cred->cr_flags & CRED_FLAG_CAPMODE)
 			ep->ep_flags |= EP_FLAG_CAPMODE;
 
-		/* Audit info */
 		ep->ep_auid = cred->cr_audit.ai_auid;
 		ep->ep_asid = cred->cr_audit.ai_asid;
 	}
 
-	/* Command name */
+	/* Command name (inline - always populated, small) */
 	strlcpy(ep->ep_comm, p->p_comm, sizeof(ep->ep_comm));
 
-	/* Executable path - left empty, filled by caller if available */
-	ep->ep_path[0] = '\0';
-
-	/* Current working directory - left empty, requires fd table access */
-	ep->ep_cwd[0] = '\0';
+	/*
+	 * Path offsets left at 0 (empty). Callers that have path info
+	 * (e.g., exec with imgp->execpath) set ep_path_off via strtab.
+	 */
 
 	/* Process flags */
 	if (p->p_flag & P_SUGID)
@@ -2097,10 +2101,9 @@ oes_fill_process(oes_process_t *ep, struct proc *p, struct ucred *cred_override)
 	if (p->p_flag & P_EXEC)
 		ep->ep_flags |= EP_FLAG_EXEC;
 
-	/* ABI/Binary type - detect Linux vs FreeBSD binaries */
+	/* ABI/Binary type */
 	if (p->p_sysent != NULL) {
 		ep->ep_abi = p->p_sysent->sv_flags & SV_ABI_MASK;
-		/* Set flag for quick Linux detection */
 		if (ep->ep_abi == SV_ABI_LINUX)
 			ep->ep_flags |= EP_FLAG_LINUX;
 	} else {
@@ -2117,7 +2120,8 @@ oes_fill_process(oes_process_t *ep, struct proc *p, struct ucred *cred_override)
  * credential changes or delegated operations.
  */
 void
-oes_fill_file(oes_file_t *ef, struct vnode *vp, struct ucred *cred)
+oes_fill_file(oes_file_t *ef, struct vnode *vp, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
 	struct vattr va;
 	struct mount *mp;
@@ -2131,7 +2135,6 @@ oes_fill_file(oes_file_t *ef, struct vnode *vp, struct ucred *cred)
 	/* File type from vnode */
 	ef->ef_type = oes_vtype_to_eftype(vp->v_type);
 
-	/* Create token from inode + device */
 	ef->ef_token.eft_id = 0;
 	ef->ef_token.eft_dev = 0;
 
@@ -2144,25 +2147,23 @@ oes_fill_file(oes_file_t *ef, struct vnode *vp, struct ucred *cred)
 		ef->ef_ino = va.va_fileid;
 		ef->ef_dev = va.va_fsid;
 		ef->ef_size = va.va_size;
-		ef->ef_blocks = va.va_bytes / 512;  /* Convert to 512-byte blocks */
+		ef->ef_blocks = va.va_bytes / 512;
 		ef->ef_mode = va.va_mode;
 		ef->ef_uid = va.va_uid;
 		ef->ef_gid = va.va_gid;
 		ef->ef_flags = va.va_flags;
 		ef->ef_nlink = va.va_nlink;
 
-		/* Timestamps */
 		ef->ef_atime = va.va_atime.tv_sec;
 		ef->ef_mtime = va.va_mtime.tv_sec;
 		ef->ef_ctime = va.va_ctime.tv_sec;
 		ef->ef_birthtime = va.va_birthtime.tv_sec;
 
-		/* Token from actual inode/device */
 		ef->ef_token.eft_id = va.va_fileid;
 		ef->ef_token.eft_dev = va.va_fsid;
 	}
 
-	/* Filesystem type */
+	/* Filesystem type (inline - always populated, 16 bytes) */
 	mp = vp->v_mount;
 	if (mp != NULL && mp->mnt_vfc != NULL)
 		strlcpy(ef->ef_fstype, mp->mnt_vfc->vfc_name,
@@ -2171,16 +2172,16 @@ oes_fill_file(oes_file_t *ef, struct vnode *vp, struct ucred *cred)
 	/*
 	 * Path lookup: vn_fullpath() can deadlock when called from MAC
 	 * hooks that already hold VFS locks. Attempt only when vnode
-	 * is not locked; otherwise path is filled by caller when available.
+	 * is not locked; otherwise caller sets ef_path_off via strtab.
 	 */
-	ef->ef_path[0] = '\0';
-	if (VOP_ISLOCKED(vp) == 0) {
+	if (st != NULL && msg_base != NULL && VOP_ISLOCKED(vp) == 0) {
 		char *fullpath = NULL;
 		char *freepath = NULL;
 
 		if (vn_fullpath(vp, &fullpath, &freepath) == 0 &&
 		    fullpath != NULL) {
-			strlcpy(ef->ef_path, fullpath, sizeof(ef->ef_path));
+			ef->ef_path_off = oes_strtab_add(st, msg_base,
+			    fullpath);
 		}
 		if (freepath != NULL)
 			free(freepath, M_TEMP);

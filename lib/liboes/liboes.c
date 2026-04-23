@@ -27,6 +27,17 @@ struct oes_client {
 	int		ec_fd;		/* File descriptor */
 	bool		ec_owned;	/* We own the fd (close on destroy) */
 	uint32_t	ec_mode;	/* Current mode */
+
+	/*
+	 * Batch read buffer: kernel packs multiple NOTIFY events per read().
+	 * Union ensures the buffer is aligned for oes_message_t access.
+	 */
+	union {
+		oes_message_t	_align;
+		uint8_t		_raw[OES_MSG_MAX_SIZE];
+	}		ec_buf;
+	size_t		ec_buflen;	/* Valid bytes in ec_buf */
+	size_t		ec_bufoff;	/* Current read offset into ec_buf */
 };
 
 /*
@@ -486,13 +497,11 @@ oes_get_mute_invert(oes_client_t *client, uint32_t type, bool *invert)
 }
 
 /*
- * oes_read_event - Read one event
- *
- * Uses poll() for non-blocking reads instead of toggling O_NONBLOCK,
- * which is not thread-safe on a shared file descriptor.
+ * Refill the internal batch buffer from the kernel.
+ * The kernel packs multiple NOTIFY events per read().
  */
-int
-oes_read_event(oes_client_t *client, oes_message_t *msg, bool blocking)
+static int
+oes_refill(oes_client_t *client, bool blocking)
 {
 	struct pollfd pfd;
 	ssize_t n;
@@ -504,30 +513,84 @@ oes_read_event(oes_client_t *client, oes_message_t *msg, bool blocking)
 		pfd.events = POLLIN;
 		pfd.revents = 0;
 
-		/* Poll with zero timeout for immediate check */
 		ret = poll(&pfd, 1, 0);
 		if (ret < 0)
-			return (-1);	/* Preserve errno from poll() */
+			return (-1);
 		if (pfd.revents & (POLLHUP | POLLERR | POLLNVAL)) {
-			errno = EBADF;	/* fd is dead or invalid */
+			errno = ENXIO;
 			return (-1);
 		}
 		if (ret == 0 || !(pfd.revents & POLLIN)) {
-			errno = EAGAIN;	/* No data available */
+			errno = EAGAIN;
 			return (-1);
 		}
 	}
 
-	n = read(client->ec_fd, msg, sizeof(*msg));
-
+	n = read(client->ec_fd, client->ec_buf._raw, sizeof(client->ec_buf));
 	if (n < 0)
 		return (-1);
 
-	if (n != sizeof(*msg)) {
+	if ((size_t)n < sizeof(oes_message_t)) {
 		errno = EIO;
 		return (-1);
 	}
 
+	client->ec_buflen = (size_t)n;
+	client->ec_bufoff = 0;
+	return (0);
+}
+
+/*
+ * oes_read_event - Read one event from the batched buffer.
+ *
+ * Returns a pointer to the next event in the internal buffer.
+ * The kernel packs multiple NOTIFY events per read() syscall;
+ * this function drains them one at a time, refilling only when
+ * the buffer is exhausted.
+ *
+ * The returned pointer is valid until the next oes_read_event() call.
+ */
+int
+oes_read_event(oes_client_t *client, const oes_message_t **msgp,
+    bool blocking)
+{
+	const oes_message_t *msg;
+
+	if (client == NULL || msgp == NULL) {
+		errno = EINVAL;
+		return (-1);
+	}
+
+	/* Advance past previous message if we have one buffered */
+	if (client->ec_bufoff < client->ec_buflen) {
+		msg = (const oes_message_t *)(void *)
+		    (client->ec_buf._raw + client->ec_bufoff);
+		client->ec_bufoff += msg->em_size;
+	}
+
+	/* Check if more messages remain in the batch */
+	if (client->ec_bufoff + sizeof(oes_message_t) <= client->ec_buflen) {
+		msg = (const oes_message_t *)(void *)
+		    (client->ec_buf._raw + client->ec_bufoff);
+		if (msg->em_size >= sizeof(oes_message_t) &&
+		    client->ec_bufoff + msg->em_size <= client->ec_buflen) {
+			*msgp = msg;
+			return (0);
+		}
+	}
+
+	/* Buffer empty or corrupt - refill from kernel */
+	if (oes_refill(client, blocking) < 0)
+		return (-1);
+
+	msg = &client->ec_buf._align;
+	if (msg->em_size < sizeof(oes_message_t) ||
+	    msg->em_size > client->ec_buflen) {
+		errno = EIO;
+		return (-1);
+	}
+
+	*msgp = msg;
 	return (0);
 }
 
@@ -562,15 +625,13 @@ oes_respond(oes_client_t *client, uint64_t msg_id, oes_auth_result_t result)
 int
 oes_dispatch(oes_client_t *client, oes_handler_t handler, void *context)
 {
-	oes_message_t msg;
-	bool cont;
+	const oes_message_t *msg;
 
 	for (;;) {
 		if (oes_read_event(client, &msg, true) < 0)
 			return (-1);
 
-		cont = handler(client, &msg, context);
-		if (!cont)
+		if (!handler(client, msg, context))
 			return (0);
 	}
 }

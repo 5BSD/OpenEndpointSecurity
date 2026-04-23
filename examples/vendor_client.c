@@ -115,15 +115,21 @@ event_handler(oes_client_t *client __unused, const oes_message_t *msg,
 	/* Print file path for file events */
 	switch (msg->em_event) {
 	case OES_EVENT_NOTIFY_EXEC:
-	case OES_EVENT_AUTH_EXEC:
-		if (msg->em_event_data.exec.executable.ef_path[0])
-			printf(" exe=%s", msg->em_event_data.exec.executable.ef_path);
+	case OES_EVENT_AUTH_EXEC: {
+		const char *exe = oes_file_path(msg,
+		    &msg->em_event_data.exec.executable);
+		if (exe[0] != '\0')
+			printf(" exe=%s", exe);
 		break;
+	}
 	case OES_EVENT_NOTIFY_OPEN:
-	case OES_EVENT_AUTH_OPEN:
-		if (msg->em_event_data.open.file.ef_path[0])
-			printf(" file=%s", msg->em_event_data.open.file.ef_path);
+	case OES_EVENT_AUTH_OPEN: {
+		const char *path = oes_file_path(msg,
+		    &msg->em_event_data.open.file);
+		if (path[0] != '\0')
+			printf(" file=%s", path);
 		break;
+	}
 	default:
 		break;
 	}

@@ -34,6 +34,7 @@ tests/test_*
 # Example binaries
 examples/oesd
 examples/vendor_client
+examples/oeslogger
 
 # Local deployment scripts (may contain IPs/credentials)
 deploy-*.sh

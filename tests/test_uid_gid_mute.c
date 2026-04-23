@@ -14,21 +14,22 @@
 #include <unistd.h>
 
 #include <security/oes/oes.h>
+#include "test_common.h"
 
 static int
 wait_for_event(int fd, pid_t pid, oes_event_type_t event, int timeout_ms,
     oes_message_t *out)
 {
-	struct pollfd pfd;
+	test_msg_buf _buf;
+	oes_message_t *msg = &_buf.msg;
 	struct timespec start;
 
-	pfd.fd = fd;
-	pfd.events = POLLIN;
 	clock_gettime(CLOCK_MONOTONIC, &start);
 
 	for (;;) {
 		struct timespec now;
 		long elapsed_ms;
+		int remaining;
 
 		clock_gettime(CLOCK_MONOTONIC, &now);
 		elapsed_ms = (now.tv_sec - start.tv_sec) * 1000L +
@@ -36,25 +37,19 @@ wait_for_event(int fd, pid_t pid, oes_event_type_t event, int timeout_ms,
 		if (elapsed_ms >= timeout_ms)
 			break;
 
-		if (poll(&pfd, 1, 100) > 0 && (pfd.revents & POLLIN)) {
-			oes_message_t msg;
-			ssize_t n = read(fd, &msg, sizeof(msg));
-			if (n < 0) {
-				if (errno == EAGAIN || errno == EWOULDBLOCK)
-					continue;
-				perror("read");
-				return (-1);
-			}
-			if ((size_t)n != sizeof(msg))
-				continue;
-			if (msg.em_process.ep_pid != pid)
-				continue;
-			if (msg.em_event != event)
-				continue;
-			if (out != NULL)
-				*out = msg;
-			return (0);
-		}
+		remaining = timeout_ms - (int)elapsed_ms;
+		if (remaining > 100)
+			remaining = 100;
+
+		if (test_wait_event(fd, msg, remaining) != 0)
+			continue;
+		if (msg->em_process.ep_pid != pid)
+			continue;
+		if (msg->em_event != event)
+			continue;
+		if (out != NULL)
+			*out = *msg;
+		return (0);
 	}
 
 	return (ETIMEDOUT);

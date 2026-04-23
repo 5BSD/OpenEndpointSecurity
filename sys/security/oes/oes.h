@@ -18,8 +18,6 @@
 #include <sys/types.h>
 #include <sys/ioccom.h>
 #include <sys/param.h>
-#include <sys/dirent.h>
-#include <sys/extattr.h>
 
 /*
  * API Version - increment on breaking changes
@@ -222,6 +220,11 @@ typedef struct {
  *
  * Analogous to Apple's es_process_t. Contains snapshot of process
  * state at time of event.
+ *
+ * Path fields (ep_path, ep_cwd, ep_jailname) are stored in the
+ * message's trailing string table as NUL-terminated strings.
+ * Use oes_msg_string(msg, offset) to access them.
+ * An offset of 0 means the string is empty.
  */
 typedef struct {
 	oes_proc_token_t ep_token;	/* Token for muting/identity */
@@ -256,13 +259,16 @@ typedef struct {
 	uid_t		ep_auid;	/* Audit user ID */
 	uint32_t	ep_asid;	/* Audit session ID */
 
-	/* Paths and names */
+	/* Names (small, always populated - kept inline) */
 	char		ep_comm[MAXCOMLEN + 1];	/* Command name */
-	char		ep_path[MAXPATHLEN];	/* Executable path */
-	char		ep_cwd[MAXPATHLEN];	/* Current working directory */
 	char		ep_tty[32];	/* Controlling TTY name */
 	char		ep_login[MAXLOGNAME];	/* Login name */
-	char		ep_jailname[MAXHOSTNAMELEN]; /* Jail name if jailed */
+
+	/* Paths (variable-length, in string table) */
+	uint32_t	ep_path_off;	/* Executable path (string table offset) */
+	uint32_t	ep_cwd_off;	/* Current working directory */
+	uint32_t	ep_jailname_off; /* Jail name if jailed */
+	uint32_t	ep_pad2;	/* Alignment */
 } oes_process_t;
 
 /* Process flags */
@@ -284,6 +290,9 @@ typedef struct {
 
 /*
  * File information
+ *
+ * Path is stored in the message's trailing string table.
+ * Use oes_msg_string(msg, ef_path_off) to access it.
  */
 typedef struct {
 	oes_file_token_t ef_token;	/* Token for fd retrieval */
@@ -307,7 +316,7 @@ typedef struct {
 
 	/* Filesystem info */
 	char		ef_fstype[16];	/* Filesystem type (ufs, zfs, etc.) */
-	char		ef_path[MAXPATHLEN];
+	uint32_t	ef_path_off;	/* Path (string table offset, 0 = empty) */
 } oes_file_t;
 
 /* File types */
@@ -324,7 +333,10 @@ typedef struct {
  * Event-specific data structures
  */
 
-/* Maximum size for embedded exec arguments */
+/*
+ * Maximum exec argument data in string table.
+ * Argv and envp are stored as NUL-separated strings.
+ */
 #define OES_EXEC_ARGS_MAX	4096
 
 /* OES_EVENT_*_EXEC */
@@ -333,11 +345,12 @@ typedef struct {
 	oes_file_t	executable;	/* Executable being run */
 	uint32_t	argc;		/* Argument count */
 	uint32_t	envc;		/* Environment count */
-	uint32_t	argv_len;	/* Length of argv data in args[] */
-	uint32_t	envp_len;	/* Length of envp data in args[] */
+	uint32_t	argv_off;	/* NUL-separated argv (string table offset) */
+	uint32_t	argv_len;	/* Length of argv data in string table */
+	uint32_t	envp_off;	/* NUL-separated envp (string table offset) */
+	uint32_t	envp_len;	/* Length of envp data in string table */
 	uint32_t	flags;		/* EE_FLAG_* */
 	uint32_t	reserved;
-	char		args[OES_EXEC_ARGS_MAX]; /* NUL-separated: argv then envp */
 } oes_event_exec_t;
 
 /* Exec event flags */
@@ -375,7 +388,7 @@ typedef struct {
 /* OES_EVENT_*_LOOKUP */
 typedef struct {
 	oes_file_t	dir;		/* Directory being searched */
-	char		name[MAXNAMLEN + 1]; /* Lookup name */
+	uint32_t	name_off;	/* Lookup name (string table offset) */
 } oes_event_lookup_t;
 
 /* OES_EVENT_*_CREATE */
@@ -396,14 +409,14 @@ typedef struct {
 	oes_file_t	src_dir;	/* Source directory */
 	oes_file_t	src_file;	/* Source file */
 	oes_file_t	dst_dir;	/* Destination directory */
-	char		dst_name[MAXNAMLEN + 1]; /* New name */
+	uint32_t	dst_name_off;	/* New name (string table offset) */
 } oes_event_rename_t;
 
 /* OES_EVENT_*_LINK */
 typedef struct {
 	oes_file_t	target;		/* Target of the new link */
 	oes_file_t	dir;		/* Directory containing link */
-	char		name[MAXNAMLEN + 1]; /* Link name */
+	uint32_t	name_off;	/* Link name (string table offset) */
 } oes_event_link_t;
 
 /* OES_EVENT_NOTIFY_FORK */
@@ -420,7 +433,8 @@ typedef struct {
 typedef struct {
 	oes_file_t	mountpoint;	/* Mount point */
 	char		fstype[16];	/* Filesystem type */
-	char		source[MAXPATHLEN]; /* Source device/path */
+	uint32_t	source_off;	/* Source device/path (string table offset) */
+	uint32_t	pad;
 	uint64_t	flags;		/* Mount flags */
 } oes_event_mount_t;
 
@@ -485,14 +499,14 @@ typedef struct {
 typedef struct {
 	oes_file_t	file;		/* Target file */
 	int		attrnamespace;	/* EXTATTR_NAMESPACE_* */
-	char		name[EXTATTR_MAXNAMELEN + 1]; /* Attr name */
+	uint32_t	name_off;	/* Attr name (string table offset) */
 } oes_event_setextattr_t;
 
 /* OES_EVENT_*_{GET,DELETE,LIST}EXTATTR */
 typedef struct {
 	oes_file_t	file;		/* Target file */
 	int		attrnamespace;	/* EXTATTR_NAMESPACE_* */
-	char		name[EXTATTR_MAXNAMELEN + 1]; /* Attr name (if any) */
+	uint32_t	name_off;	/* Attr name (string table offset, 0 for list) */
 } oes_event_extattr_t;
 
 /* OES_EVENT_*_{GET,SET,DELETE}ACL */
@@ -562,7 +576,7 @@ typedef struct {
 
 /* OES_EVENT_*_SYSCTL */
 typedef struct {
-	char		name[256];	/* Sysctl name (dot-separated) */
+	uint32_t	name_off;	/* Sysctl name (string table offset) */
 	int		op;		/* Operation: 0=read, 1=write */
 } oes_event_sysctl_t;
 
@@ -570,7 +584,7 @@ typedef struct {
  * Kenv (kernel environment) event
  */
 typedef struct {
-	char		name[128];	/* Environment variable name */
+	uint32_t	name_off;	/* Environment variable name (string table offset) */
 	int		op;		/* Operation: 0=get, 1=set, 2=unset */
 } oes_event_kenv_t;
 
@@ -611,7 +625,7 @@ typedef struct {
  */
 typedef struct {
 	char		fstype[16];	/* Filesystem type */
-	char		fspath[MAXPATHLEN]; /* Mount point */
+	uint32_t	fspath_off;	/* Mount point (string table offset) */
 } oes_event_mount_stat_t;
 
 /*
@@ -631,11 +645,17 @@ typedef struct {
 /*
  * Main message structure
  *
- * Clients read these from the oes fd. Size is fixed for ABI stability.
+ * Clients read these from the oes fd. Messages are variable-length:
+ * a fixed header (sizeof(oes_message_t)) followed by a string table
+ * containing NUL-terminated path/name strings referenced by _off fields.
+ * em_size gives the total size including the string table.
+ *
+ * Use oes_msg_string(msg, offset) to access strings by offset.
+ * Allocate OES_MSG_MAX_SIZE for read buffers.
  */
 typedef struct {
 	uint32_t	em_version;	/* OES_MESSAGE_VERSION */
-	uint32_t	em_reserved;	/* Alignment padding */
+	uint32_t	em_size;	/* Total message size (header + strings) */
 	uint64_t	em_id;		/* Unique message ID (for response) */
 	oes_event_type_t em_event;	/* Event type */
 	oes_action_t	em_action;	/* AUTH or NOTIFY */
@@ -706,7 +726,32 @@ typedef struct {
 	} em_event_data;
 } oes_message_t;
 
-#define OES_MESSAGE_VERSION	1
+#define OES_MESSAGE_VERSION	2
+
+/*
+ * Maximum message size including string table.
+ * Use this to size read buffers.
+ *
+ * Batched messages are laid out back-to-back in raw byte buffers.
+ * OES_MSG_ALIGN therefore must stay at least as strict as the natural
+ * alignment required by oes_message_t, or later messages in a batch can
+ * become misaligned for readers that walk the buffer one message at a time.
+ */
+#define OES_MSG_MAX_SIZE	8192
+#define OES_MSG_ALIGN		8	/* Message size alignment for batching */
+#define OES_MSG_ALIGNED(sz)	(((sz) + OES_MSG_ALIGN - 1) & ~(OES_MSG_ALIGN - 1))
+
+/*
+ * Access a string from the message's string table by offset.
+ * Returns "" for offset 0 (empty) or out-of-bounds offsets.
+ */
+static inline const char *
+oes_msg_string(const oes_message_t *msg, uint32_t off)
+{
+	if (off < sizeof(oes_message_t) || off >= msg->em_size)
+		return ("");
+	return ((const char *)msg + off);
+}
 
 /*
  * Response structure
@@ -992,14 +1037,20 @@ struct oes_stats {
 	uint32_t	es_cache_max;		/* Max cache entries */
 
 	/* Queue state */
-	uint32_t	es_queue_current;	/* Current queue depth */
-	uint32_t	es_queue_max;		/* Max queue size */
+	uint32_t	es_queue_current;	/* Current queue depth (events) */
+	uint32_t	es_queue_max;		/* Max queue size (events) */
+	uint32_t	es_queue_bytes;		/* Current queued bytes */
+	uint32_t	es_queue_highwater;	/* Peak queue depth (events) */
+
+	/* Global counters (from softc, shared across clients) */
+	uint64_t	es_nosleep_drops;	/* NOSLEEP events dropped */
+	uint64_t	es_alloc_failures;	/* Allocation failures */
 
 	/* Current configuration */
 	uint32_t	es_mode;		/* OES_MODE_* */
 	uint32_t	es_timeout_ms;		/* AUTH timeout in ms */
 	uint32_t	es_timeout_action;	/* OES_AUTH_ALLOW or DENY */
-	uint32_t	es_reserved;		/* Padding for alignment */
+	uint32_t	es_reserved;
 };
 
 #define OES_IOC_GET_STATS	_IOR('E', 6, struct oes_stats)
@@ -1010,6 +1061,7 @@ struct oes_stats {
 #ifndef _KERNEL
 #define OES_IOCTLS_THIRD_PARTY_INIT \
 	{ OES_IOC_SUBSCRIBE, OES_IOC_SUBSCRIBE_BITMAP, \
+	  OES_IOC_SUBSCRIBE_BITMAP_EX, \
 	  OES_IOC_GET_MODE, OES_IOC_GET_TIMEOUT, \
 	  OES_IOC_MUTE_PROCESS, OES_IOC_UNMUTE_PROCESS, \
 	  OES_IOC_MUTE_PATH, OES_IOC_UNMUTE_PATH, OES_IOC_SET_MUTE_INVERT, \

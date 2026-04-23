@@ -17,6 +17,7 @@
 #include <unistd.h>
 
 #include <security/oes/oes.h>
+#include "test_common.h"
 
 #define NUM_CLIENTS	20
 #define NUM_ITERATIONS	100
@@ -236,7 +237,8 @@ client_thread(void *arg)
 
 	/* Rapidly subscribe/read */
 	for (i = 0; i < 50; i++) {
-		oes_message_t msg;
+		test_msg_buf _msg_buf;
+		oes_message_t *msg = &_msg_buf.msg;
 
 		memset(&sub, 0, sizeof(sub));
 		sub.esa_events = events;
@@ -245,7 +247,7 @@ client_thread(void *arg)
 		(void)ioctl(fd, OES_IOC_SUBSCRIBE, &sub);
 
 		/* Try to read (non-blocking) */
-		(void)read(fd, &msg, sizeof(msg));
+		(void)read(fd, msg, OES_MSG_MAX_SIZE);
 
 		usleep(1000); /* 1ms */
 	}
@@ -343,8 +345,9 @@ test_fork_stress(void)
 
 	/* Drain events */
 	for (i = 0; i < 100; i++) {
-		oes_message_t msg;
-		ssize_t n = read(fd, &msg, sizeof(msg));
+		test_msg_buf _msg_buf;
+		oes_message_t *msg = &_msg_buf.msg;
+		ssize_t n = read(fd, msg, OES_MSG_MAX_SIZE);
 		if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
 			break;
 	}

@@ -154,7 +154,7 @@ static int	oes_ioctl_unmute_all_processes(struct oes_client *ec);
 static int	oes_ioctl_unmute_all_paths(struct oes_client *ec, bool target);
 
 /* Forward declaration for cdevpriv dtor */
-void	oes_client_dtor(void *data);
+static void	oes_client_dtor(void *data);
 
 static struct cdevsw oes_cdevsw = {
 	.d_version =	D_VERSION,
@@ -187,14 +187,11 @@ static struct filterops oes_rfiltops = {
  * event queue, and configuration.
  */
 static int
-oes_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
+oes_open(struct cdev *dev __unused, int oflags __unused, int devtype __unused,
+    struct thread *td)
 {
 	struct oes_client *ec;
 	int error;
-
-	(void)dev;
-	(void)oflags;
-	(void)devtype;
 
 	/* Check privilege to open the device */
 	error = priv_check(td, PRIV_DRIVER);
@@ -263,7 +260,7 @@ oes_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
 /*
  * oes_client_dtor - Called when file descriptor is closed
  */
-void
+static void
 oes_client_dtor(void *data)
 {
 	struct oes_client *ec = data;
@@ -301,11 +298,22 @@ oes_close(struct cdev *dev, int fflag, int devtype, struct thread *td)
 /*
  * oes_read - Read events from client queue
  *
- * Returns one oes_message_t per read. Blocks if queue is empty
- * (unless O_NONBLOCK).
+ * Returns one or more events per read.  AUTH events are always returned
+ * alone (each needs an individual response).  NOTIFY events are batched:
+ * as many as fit in the user buffer are packed contiguously, stopping at
+ * the first AUTH event or when the buffer is full.
+ *
+ * Each message is self-describing via em_size.  Userspace iterates:
+ *   off = 0;
+ *   while (off < bytes_read) {
+ *       msg = buf + off;
+ *       off += msg->em_size;
+ *   }
+ *
+ * Blocks if queue is empty (unless O_NONBLOCK).
  */
 static int
-oes_read(struct cdev *dev, struct uio *uio, int ioflag)
+oes_read(struct cdev *dev __unused, struct uio *uio, int ioflag)
 {
 	struct oes_client *ec;
 	struct oes_pending *ep;
@@ -315,7 +323,6 @@ oes_read(struct cdev *dev, struct uio *uio, int ioflag)
 	if (error)
 		return (error);
 
-	/* Must read exactly one message */
 	if (uio->uio_resid < sizeof(oes_message_t))
 		return (EINVAL);
 
@@ -339,19 +346,17 @@ oes_read(struct cdev *dev, struct uio *uio, int ioflag)
 		}
 	}
 
-	/* Dequeue events, skipping expired AUTH events */
+	/* Skip expired AUTH events at head of queue */
 	for (;;) {
 		ep = oes_event_dequeue(ec);
 		KASSERT(ep != NULL, ("oes_read: dequeue returned NULL"));
 
 		if (OES_EVENT_IS_AUTH(ep->ep_msg.em_event) &&
 		    (ep->ep_flags & EP_FLAG_EXPIRED)) {
-			/* Skip expired AUTH event, release it */
 			EC_UNLOCK(ec);
 			oes_pending_rele(ep);
 			EC_LOCK(ec);
 
-			/* Check if more events available */
 			if (TAILQ_EMPTY(&ec->ec_pending)) {
 				if (ec->ec_flags & EC_FLAG_CLOSING) {
 					EC_UNLOCK(ec);
@@ -374,43 +379,95 @@ oes_read(struct cdev *dev, struct uio *uio, int ioflag)
 	}
 
 	/*
-	 * Add AUTH events to delivered queue for response flow.
-	 * NOTIFY events are released immediately after read.
+	 * AUTH event: return alone (needs individual response).
 	 */
 	if (OES_EVENT_IS_AUTH(ep->ep_msg.em_event)) {
 		TAILQ_INSERT_TAIL(&ec->ec_delivered, ep, ep_link);
-	}
-
-	EC_UNLOCK(ec);
-
-	/* Copy message to userspace */
-	error = uiomove(&ep->ep_msg, sizeof(oes_message_t), uio);
-
-	/*
-	 * Handle copyout failure for AUTH events.
-	 * If the event was added to the delivered queue but userspace
-	 * never received it, we must requeue it for retry.
-	 */
-	if (error != 0 && OES_EVENT_IS_AUTH(ep->ep_msg.em_event)) {
-		EC_LOCK(ec);
-		TAILQ_REMOVE(&ec->ec_delivered, ep, ep_link);
-		ep->ep_flags &= ~EP_FLAG_DELIVERED;
-		TAILQ_INSERT_HEAD(&ec->ec_pending, ep, ep_link);
-		ec->ec_queue_count++;
-		/* Wake up poll/select/kqueue waiters and sleepers */
-		selwakeup(&ec->ec_selinfo);
-		KNOTE_LOCKED(&ec->ec_selinfo.si_note, 0);
-		wakeup(&ec->ec_pending);
 		EC_UNLOCK(ec);
+
+		if (uio->uio_resid < ep->ep_msg.em_size) {
+			EC_LOCK(ec);
+			TAILQ_REMOVE(&ec->ec_delivered, ep, ep_link);
+			ep->ep_flags &= ~EP_FLAG_DELIVERED;
+			TAILQ_INSERT_HEAD(&ec->ec_pending, ep, ep_link);
+			ec->ec_queue_count++;
+			ec->ec_queue_bytes += ep->ep_msg.em_size;
+			selwakeup(&ec->ec_selinfo);
+			KNOTE_LOCKED(&ec->ec_selinfo.si_note, 0);
+			wakeup(&ec->ec_pending);
+			EC_UNLOCK(ec);
+			return (ENOBUFS);
+		}
+
+		error = uiomove(&ep->ep_msg, ep->ep_msg.em_size, uio);
+		if (error != 0) {
+			EC_LOCK(ec);
+			TAILQ_REMOVE(&ec->ec_delivered, ep, ep_link);
+			ep->ep_flags &= ~EP_FLAG_DELIVERED;
+			TAILQ_INSERT_HEAD(&ec->ec_pending, ep, ep_link);
+			ec->ec_queue_count++;
+			ec->ec_queue_bytes += ep->ep_msg.em_size;
+			selwakeup(&ec->ec_selinfo);
+			KNOTE_LOCKED(&ec->ec_selinfo.si_note, 0);
+			wakeup(&ec->ec_pending);
+			EC_UNLOCK(ec);
+		}
 		return (error);
 	}
 
-	/* Release NOTIFY events (AUTH events stay in delivered queue) */
-	if (!OES_EVENT_IS_AUTH(ep->ep_msg.em_event)) {
+	/*
+	 * NOTIFY event: batch as many as fit in the user buffer.
+	 * Pack contiguously, stopping at the first AUTH event or
+	 * when buffer space runs out.
+	 */
+	EC_UNLOCK(ec);
+
+	{
+	bool copied_any = false;
+
+	for (;;) {
+		/* Check buffer space */
+		if (uio->uio_resid < ep->ep_msg.em_size) {
+			/* No room - requeue and wake so next read sees it */
+			EC_LOCK(ec);
+			ep->ep_flags &= ~EP_FLAG_DELIVERED;
+			TAILQ_INSERT_HEAD(&ec->ec_pending, ep, ep_link);
+			ec->ec_queue_count++;
+			ec->ec_queue_bytes += ep->ep_msg.em_size;
+			selwakeup(&ec->ec_selinfo);
+			KNOTE_LOCKED(&ec->ec_selinfo.si_note, 0);
+			wakeup(&ec->ec_pending);
+			EC_UNLOCK(ec);
+			/*
+			 * If nothing was copied yet, the buffer is too
+			 * small for even one event.  Return ENOBUFS so
+			 * the caller doesn't see a zero-byte "success".
+			 */
+			if (!copied_any)
+				return (ENOBUFS);
+			break;
+		}
+
+		error = uiomove(&ep->ep_msg, ep->ep_msg.em_size, uio);
 		oes_pending_rele(ep);
+		if (error != 0)
+			return (error);
+		copied_any = true;
+
+		/* Try to dequeue more NOTIFY events */
+		EC_LOCK(ec);
+		ep = TAILQ_FIRST(&ec->ec_pending);
+		if (ep == NULL || OES_EVENT_IS_AUTH(ep->ep_msg.em_event) ||
+		    (ep->ep_flags & EP_FLAG_EXPIRED)) {
+			EC_UNLOCK(ec);
+			break;
+		}
+		ep = oes_event_dequeue(ec);
+		EC_UNLOCK(ec);
+	}
 	}
 
-	return (error);
+	return (0);
 }
 
 /*
@@ -523,7 +580,6 @@ oes_ioctl_subscribe_bitmap_ex(struct oes_client *ec,
 static int
 oes_ioctl_set_mode(struct oes_client *ec, struct oes_mode_args *args)
 {
-
 	if (args == NULL)
 		return (EINVAL);
 
@@ -538,7 +594,6 @@ oes_ioctl_set_mode(struct oes_client *ec, struct oes_mode_args *args)
 static int
 oes_ioctl_get_mode(struct oes_client *ec, struct oes_mode_args *args)
 {
-
 	if (args == NULL)
 		return (EINVAL);
 
@@ -551,7 +606,6 @@ oes_ioctl_get_mode(struct oes_client *ec, struct oes_mode_args *args)
 static int
 oes_ioctl_set_timeout(struct oes_client *ec, struct oes_timeout_args *args)
 {
-
 	if (args == NULL)
 		return (EINVAL);
 
@@ -561,7 +615,6 @@ oes_ioctl_set_timeout(struct oes_client *ec, struct oes_timeout_args *args)
 static int
 oes_ioctl_get_timeout(struct oes_client *ec, struct oes_timeout_args *args)
 {
-
 	if (args == NULL)
 		return (EINVAL);
 
@@ -572,7 +625,6 @@ oes_ioctl_get_timeout(struct oes_client *ec, struct oes_timeout_args *args)
 static int
 oes_ioctl_mute_process(struct oes_client *ec, struct oes_mute_args *args)
 {
-
 	if (args == NULL)
 		return (EINVAL);
 
@@ -647,7 +699,6 @@ static int
 oes_ioctl_set_mute_invert(struct oes_client *ec,
     struct oes_mute_invert_args *args)
 {
-
 	if (args == NULL)
 		return (EINVAL);
 
@@ -659,7 +710,6 @@ static int
 oes_ioctl_get_mute_invert(struct oes_client *ec,
     struct oes_mute_invert_args *args)
 {
-
 	if (args == NULL)
 		return (EINVAL);
 
@@ -671,7 +721,6 @@ static int
 oes_ioctl_set_timeout_action(struct oes_client *ec,
     struct oes_timeout_action_args *args)
 {
-
 	if (args == NULL)
 		return (EINVAL);
 
@@ -682,7 +731,6 @@ static int
 oes_ioctl_get_timeout_action(struct oes_client *ec,
     struct oes_timeout_action_args *args)
 {
-
 	if (args == NULL)
 		return (EINVAL);
 
@@ -692,7 +740,6 @@ oes_ioctl_get_timeout_action(struct oes_client *ec,
 static int
 oes_ioctl_cache_add(struct oes_client *ec, oes_cache_entry_t *entry)
 {
-
 	if (entry == NULL)
 		return (EINVAL);
 
@@ -702,7 +749,6 @@ oes_ioctl_cache_add(struct oes_client *ec, oes_cache_entry_t *entry)
 static int
 oes_ioctl_cache_remove(struct oes_client *ec, oes_cache_key_t *key)
 {
-
 	if (key == NULL)
 		return (EINVAL);
 
@@ -712,7 +758,6 @@ oes_ioctl_cache_remove(struct oes_client *ec, oes_cache_key_t *key)
 static int
 oes_ioctl_cache_clear(struct oes_client *ec)
 {
-
 	oes_client_cache_clear(ec);
 	return (0);
 }
@@ -720,7 +765,6 @@ oes_ioctl_cache_clear(struct oes_client *ec)
 static int
 oes_ioctl_get_stats(struct oes_client *ec, struct oes_stats *stats)
 {
-
 	oes_client_get_stats(ec, stats);
 	return (0);
 }
@@ -729,7 +773,6 @@ static int
 oes_ioctl_mute_process_events(struct oes_client *ec,
     struct oes_mute_process_events_args *args)
 {
-
 	if (args == NULL)
 		return (EINVAL);
 
@@ -744,7 +787,6 @@ static int
 oes_ioctl_unmute_process_events(struct oes_client *ec,
     struct oes_mute_process_events_args *args)
 {
-
 	if (args == NULL)
 		return (EINVAL);
 
@@ -876,7 +918,6 @@ oes_ioctl_get_muted_paths(struct oes_client *ec,
 static int
 oes_ioctl_unmute_all_processes(struct oes_client *ec)
 {
-
 	oes_client_unmute_all_processes(ec);
 	return (0);
 }
@@ -884,7 +925,6 @@ oes_ioctl_unmute_all_processes(struct oes_client *ec)
 static int
 oes_ioctl_unmute_all_paths(struct oes_client *ec, bool target)
 {
-
 	oes_client_unmute_all_paths(ec, target);
 	return (0);
 }
@@ -1070,7 +1110,7 @@ oes_ioctl(struct cdev *dev, u_long cmd, caddr_t data, int fflag,
 		int *nread = (int *)data;
 
 		EC_LOCK(ec);
-		*nread = ec->ec_queue_count * sizeof(oes_message_t);
+		*nread = ec->ec_queue_bytes;
 		EC_UNLOCK(ec);
 		return (0);
 	}
@@ -1147,23 +1187,25 @@ oes_kqdetach(struct knote *kn)
 {
 	struct oes_client *ec = kn->kn_hook;
 
-	EC_LOCK(ec);
-	knlist_remove(&ec->ec_selinfo.si_note, kn, 1);
-	EC_UNLOCK(ec);
+	/*
+	 * f_detach is called from knote_drop WITHOUT the knlist lock.
+	 * Use islocked=0 so knlist_remove acquires ec_mtx internally.
+	 */
+	knlist_remove(&ec->ec_selinfo.si_note, kn, 0);
 }
 
 static int
 oes_kqread(struct knote *kn, long hint)
 {
 	struct oes_client *ec = kn->kn_hook;
-	int ready;
 
-	EC_LOCK(ec);
-	kn->kn_data = ec->ec_queue_count * sizeof(oes_message_t);
-	ready = !TAILQ_EMPTY(&ec->ec_pending);
-	EC_UNLOCK(ec);
-
-	return (ready);
+	/*
+	 * Called from KNOTE_LOCKED / kqueue_scan with ec_mtx already held
+	 * (registered via knlist_init_mtx). Must NOT reacquire.
+	 */
+	EC_LOCK_ASSERT(ec);
+	kn->kn_data = ec->ec_queue_bytes;
+	return (!TAILQ_EMPTY(&ec->ec_pending));
 }
 
 /*

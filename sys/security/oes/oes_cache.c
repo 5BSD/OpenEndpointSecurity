@@ -25,28 +25,24 @@ SDT_PROBE_DECLARE(oes, , , cache__miss);
 static __inline bool
 oes_cache_proc_equal(const oes_proc_token_t *a, const oes_proc_token_t *b)
 {
-
 	return (a->ept_id == b->ept_id && a->ept_genid == b->ept_genid);
 }
 
 static __inline bool
 oes_cache_file_equal(const oes_file_token_t *a, const oes_file_token_t *b)
 {
-
 	return (a->eft_id == b->eft_id && a->eft_dev == b->eft_dev);
 }
 
 static __inline bool
 oes_cache_file_valid(const oes_file_token_t *tok)
 {
-
 	return (tok->eft_id != 0 || tok->eft_dev != 0);
 }
 
 static uint32_t
 oes_cache_bucket(oes_event_type_t event)
 {
-
 	return ((uint32_t)event & (OES_CACHE_BUCKETS - 1));
 }
 
@@ -65,7 +61,6 @@ oes_cache_make_deadline(struct timespec *deadline, uint32_t ttl_ms)
 static bool
 oes_cache_key_equal(const oes_cache_key_t *a, const oes_cache_key_t *b)
 {
-
 	if (a->eck_event != b->eck_event)
 		return (false);
 	if (a->eck_flags != b->eck_flags)
@@ -86,7 +81,6 @@ static bool
 oes_cache_key_match_lookup(const oes_cache_key_t *entry,
     const oes_cache_key_t *lookup)
 {
-
 	if (entry->eck_event != lookup->eck_event)
 		return (false);
 	/* Require exact flag match to prevent decision bleed across operations */
@@ -108,7 +102,6 @@ static bool
 oes_cache_key_match_remove(const oes_cache_key_t *entry,
     const oes_cache_key_t *remove)
 {
-
 	if (remove->eck_event != OES_CACHE_EVENT_ANY &&
 	    entry->eck_event != remove->eck_event)
 		return (false);
@@ -282,7 +275,6 @@ static void
 oes_cache_remove_entry_locked(struct oes_client *ec,
     struct oes_cache_entry *entry, bool expired, bool eviction)
 {
-
 	EC_LOCK_ASSERT(ec);
 	LIST_REMOVE(entry, ece_link);
 	TAILQ_REMOVE(&ec->ec_cache_lru, entry, ece_lru);
@@ -308,7 +300,6 @@ oes_cache_clear_locked(struct oes_client *ec)
 static bool
 oes_cache_flags_valid(uint32_t flags)
 {
-
 	/* Require at least PROCESS key to prevent overly broad cache entries */
 	if ((flags & OES_CACHE_KEY_PROCESS) == 0)
 		return (false);
@@ -331,7 +322,6 @@ oes_cache_init(struct oes_client *ec)
 void
 oes_cache_destroy(struct oes_client *ec)
 {
-
 	EC_LOCK_ASSERT(ec);
 	oes_cache_clear_locked(ec);
 }
@@ -453,7 +443,6 @@ oes_client_cache_remove(struct oes_client *ec, const oes_cache_key_t *key)
 void
 oes_client_cache_clear(struct oes_client *ec)
 {
-
 	EC_LOCK(ec);
 	oes_cache_clear_locked(ec);
 	EC_UNLOCK(ec);

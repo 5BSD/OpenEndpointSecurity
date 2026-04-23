@@ -25,6 +25,8 @@
 #include <sys/fcntl.h>
 #include <sys/eventhandler.h>
 #include <sys/acl.h>
+#include <sys/dirent.h>
+#include <sys/extattr.h>
 #include <sys/socket.h>
 #include <sys/socketvar.h>
 #include <sys/protosw.h>
@@ -77,6 +79,8 @@ struct oes_rename_ctx {
 	time_t			er_time;	/* creation time for gc */
 	oes_file_t		er_src_dir;
 	oes_file_t		er_src_file;
+	char			er_src_dir_path[MAXPATHLEN];
+	char			er_src_file_path[MAXPATHLEN];
 	char			er_src_name[MAXNAMLEN + 1];
 };
 
@@ -290,15 +294,31 @@ oes_pending_alloc_notify_from_template(const struct oes_pending *src,
     oes_event_type_t notify_event, struct proc *p, struct ucred *cred)
 {
 	struct oes_pending *ep;
+	size_t src_msg_size, alloc_size;
 
-	ep = oes_pending_alloc(notify_event, p);
+	/*
+	 * Clone the source message including its string table rather than
+	 * allocating a fresh pending (which would only have the process
+	 * strings).  The event data contains _off fields that point into
+	 * the source's string table, so we must preserve the whole thing.
+	 */
+	src_msg_size = src->ep_msg.em_size;
+	if (src_msg_size < sizeof(oes_message_t))
+		src_msg_size = sizeof(oes_message_t);
+	alloc_size = offsetof(struct oes_pending, ep_msg) + src_msg_size;
+
+	ep = malloc(alloc_size, M_OES, M_NOWAIT | M_ZERO);
 	if (ep == NULL)
 		return (NULL);
 
-	ep->ep_msg.em_time = src->ep_msg.em_time;
+	ep->ep_refcount = 1;
+	bcopy(&src->ep_msg, &ep->ep_msg, src_msg_size);
+
+	/* Override event type and action for the notify copy */
+	ep->ep_msg.em_event = notify_event;
 	ep->ep_msg.em_action = OES_ACTION_NOTIFY;
-	bcopy(&src->ep_msg.em_event_data, &ep->ep_msg.em_event_data,
-	    sizeof(src->ep_msg.em_event_data));
+	ep->ep_msg.em_id = atomic_fetchadd_64(&oes_softc.sc_next_msg_id, 1);
+	ep->ep_msg.em_deadline = (struct timespec){ 0 };
 
 	return (ep);
 }
@@ -372,8 +392,8 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 			auth_clones = malloc(sizeof(*auth_clones) * need,
 			    M_OES, M_WAITOK | M_ZERO);
 			for (i = 0; i < need; i++)
-				auth_clones[i] = oes_pending_clone(ep);
-			ag = oes_auth_group_alloc();
+				auth_clones[i] = oes_pending_clone(ep, M_WAITOK);
+			ag = oes_auth_group_alloc(M_WAITOK);
 			auth_max = need;
 		}
 	} else {
@@ -486,6 +506,10 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 				if (ep_notify != NULL) {
 					oes_event_enqueue(ec, ep_notify);
 					oes_pending_rele(ep_notify);
+				} else {
+					ec->ec_events_dropped++;
+					atomic_add_64(
+					    &oes_softc.sc_alloc_failures, 1);
 				}
 				EC_UNLOCK(ec);
 				continue;
@@ -499,6 +523,10 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 				if (ep_notify != NULL) {
 					oes_event_enqueue(ec, ep_notify);
 					oes_pending_rele(ep_notify);
+				} else {
+					ec->ec_events_dropped++;
+					atomic_add_64(
+					    &oes_softc.sc_alloc_failures, 1);
 				}
 				EC_UNLOCK(ec);
 				continue;
@@ -512,7 +540,7 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 			continue;
 		}
 
-		ep_client = oes_pending_clone(ep);
+		ep_client = oes_pending_clone(ep, M_NOWAIT);
 		if (ep_client != NULL) {
 			oes_event_enqueue(ec, ep_client);
 			oes_pending_rele(ep_client);
@@ -608,7 +636,8 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 		SDT_PROBE3(oes, , , auth__deny,
 		    ep->ep_msg.em_event,
 		    ep->ep_msg.em_process.ep_pid,
-		    ep->ep_msg.em_process.ep_path);
+		    oes_msg_string(&ep->ep_msg,
+		    ep->ep_msg.em_process.ep_path_off));
 	}
 
 	if (auth_eps != NULL) {
@@ -676,17 +705,46 @@ oes_rename_cache_store(struct thread *td,
 	ctx->er_tid = td->td_tid;
 	ctx->er_pid = td->td_proc->p_pid;
 	ctx->er_time = now;
-	if (info->dvp != NULL)
-		oes_fill_file(&ctx->er_src_dir, info->dvp, info->cred);
-	if (info->vp != NULL)
-		oes_fill_file(&ctx->er_src_file, info->vp, info->cred);
+	ctx->er_src_dir_path[0] = '\0';
+	ctx->er_src_file_path[0] = '\0';
+	if (info->dvp != NULL) {
+		oes_fill_file(&ctx->er_src_dir, info->dvp, info->cred,
+		    NULL, NULL);
+		/*
+		 * Resolve dir path into context's own buffer.
+		 * Guard with VOP_ISLOCKED to avoid deadlock - MAC rename
+		 * hooks are called with vnodes locked.
+		 */
+		if (VOP_ISLOCKED(info->dvp) == 0) {
+			char *fp = NULL, *free_fp = NULL;
+			if (vn_fullpath(info->dvp, &fp, &free_fp) == 0 &&
+			    fp != NULL)
+				strlcpy(ctx->er_src_dir_path, fp,
+				    sizeof(ctx->er_src_dir_path));
+			if (free_fp != NULL)
+				free(free_fp, M_TEMP);
+		}
+	}
+	if (info->vp != NULL) {
+		oes_fill_file(&ctx->er_src_file, info->vp, info->cred,
+		    NULL, NULL);
+		if (VOP_ISLOCKED(info->vp) == 0) {
+			char *fp = NULL, *free_fp = NULL;
+			if (vn_fullpath(info->vp, &fp, &free_fp) == 0 &&
+			    fp != NULL)
+				strlcpy(ctx->er_src_file_path, fp,
+				    sizeof(ctx->er_src_file_path));
+			if (free_fp != NULL)
+				free(free_fp, M_TEMP);
+		}
+	}
 	oes_copy_component(ctx->er_src_name, sizeof(ctx->er_src_name),
 	    info->cnp);
-	if (ctx->er_src_dir.ef_path[0] != '\0' &&
+	if (ctx->er_src_dir_path[0] != '\0' &&
 	    ctx->er_src_name[0] != '\0') {
-		oes_build_path(ctx->er_src_file.ef_path,
-		    sizeof(ctx->er_src_file.ef_path),
-		    ctx->er_src_dir.ef_path,
+		oes_build_path(ctx->er_src_file_path,
+		    sizeof(ctx->er_src_file_path),
+		    ctx->er_src_dir_path,
 		    ctx->er_src_name);
 	}
 
@@ -766,124 +824,129 @@ static const char *
 oes_event_primary_path(const struct oes_pending *ep)
 {
 	const oes_message_t *msg = &ep->ep_msg;
+	const char *s;
 
 	switch (msg->em_event) {
 	case OES_EVENT_AUTH_EXEC:
 	case OES_EVENT_NOTIFY_EXEC:
-		return (msg->em_event_data.exec.executable.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.exec.executable.ef_path_off));
 	case OES_EVENT_AUTH_OPEN:
 	case OES_EVENT_NOTIFY_OPEN:
-		return (msg->em_event_data.open.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.open.file.ef_path_off));
 	case OES_EVENT_AUTH_ACCESS:
 	case OES_EVENT_NOTIFY_ACCESS:
-		return (msg->em_event_data.access.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.access.file.ef_path_off));
 	case OES_EVENT_AUTH_READ:
 	case OES_EVENT_NOTIFY_READ:
 	case OES_EVENT_AUTH_WRITE:
 	case OES_EVENT_NOTIFY_WRITE:
-		return (msg->em_event_data.rw.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.rw.file.ef_path_off));
 	case OES_EVENT_AUTH_STAT:
 	case OES_EVENT_NOTIFY_STAT:
-		return (msg->em_event_data.stat.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.stat.file.ef_path_off));
 	case OES_EVENT_AUTH_POLL:
 	case OES_EVENT_NOTIFY_POLL:
-		return (msg->em_event_data.poll.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.poll.file.ef_path_off));
 	case OES_EVENT_AUTH_REVOKE:
 	case OES_EVENT_NOTIFY_REVOKE:
-		return (msg->em_event_data.revoke.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.revoke.file.ef_path_off));
 	case OES_EVENT_AUTH_READLINK:
 	case OES_EVENT_NOTIFY_READLINK:
-		return (msg->em_event_data.readlink.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.readlink.file.ef_path_off));
 	case OES_EVENT_AUTH_READDIR:
 	case OES_EVENT_NOTIFY_READDIR:
-		return (msg->em_event_data.readdir.dir.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.readdir.dir.ef_path_off));
 	case OES_EVENT_AUTH_LOOKUP:
 	case OES_EVENT_NOTIFY_LOOKUP:
-		if (msg->em_event_data.lookup.name[0] != '\0')
-			return (msg->em_event_data.lookup.name);
-		return (msg->em_event_data.lookup.dir.ef_path);
+		s = oes_msg_string(msg, msg->em_event_data.lookup.name_off);
+		if (s[0] != '\0')
+			return (s);
+		return (oes_msg_string(msg, msg->em_event_data.lookup.dir.ef_path_off));
 	case OES_EVENT_AUTH_CREATE:
 	case OES_EVENT_NOTIFY_CREATE:
-		if (msg->em_event_data.create.file.ef_path[0] != '\0')
-			return (msg->em_event_data.create.file.ef_path);
-		return (msg->em_event_data.create.dir.ef_path);
+		s = oes_msg_string(msg, msg->em_event_data.create.file.ef_path_off);
+		if (s[0] != '\0')
+			return (s);
+		return (oes_msg_string(msg, msg->em_event_data.create.dir.ef_path_off));
 	case OES_EVENT_AUTH_UNLINK:
 	case OES_EVENT_NOTIFY_UNLINK:
-		if (msg->em_event_data.unlink.file.ef_path[0] != '\0')
-			return (msg->em_event_data.unlink.file.ef_path);
-		return (msg->em_event_data.unlink.dir.ef_path);
+		s = oes_msg_string(msg, msg->em_event_data.unlink.file.ef_path_off);
+		if (s[0] != '\0')
+			return (s);
+		return (oes_msg_string(msg, msg->em_event_data.unlink.dir.ef_path_off));
 	case OES_EVENT_AUTH_RENAME:
 	case OES_EVENT_NOTIFY_RENAME:
-		if (msg->em_event_data.rename.src_file.ef_path[0] != '\0')
-			return (msg->em_event_data.rename.src_file.ef_path);
-		return (msg->em_event_data.rename.src_dir.ef_path);
+		s = oes_msg_string(msg, msg->em_event_data.rename.src_file.ef_path_off);
+		if (s[0] != '\0')
+			return (s);
+		return (oes_msg_string(msg, msg->em_event_data.rename.src_dir.ef_path_off));
 	case OES_EVENT_AUTH_LINK:
 	case OES_EVENT_NOTIFY_LINK:
-		return (msg->em_event_data.link.target.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.link.target.ef_path_off));
 	case OES_EVENT_AUTH_KLDLOAD:
 	case OES_EVENT_NOTIFY_KLDLOAD:
-		return (msg->em_event_data.kldload.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.kldload.file.ef_path_off));
 	case OES_EVENT_AUTH_MMAP:
 	case OES_EVENT_NOTIFY_MMAP:
-		return (msg->em_event_data.mmap.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.mmap.file.ef_path_off));
 	case OES_EVENT_AUTH_MPROTECT:
 	case OES_EVENT_NOTIFY_MPROTECT:
-		return (msg->em_event_data.mprotect.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.mprotect.file.ef_path_off));
 	case OES_EVENT_AUTH_SETMODE:
 	case OES_EVENT_NOTIFY_SETMODE:
-		return (msg->em_event_data.setmode.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.setmode.file.ef_path_off));
 	case OES_EVENT_AUTH_SETOWNER:
 	case OES_EVENT_NOTIFY_SETOWNER:
-		return (msg->em_event_data.setowner.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.setowner.file.ef_path_off));
 	case OES_EVENT_AUTH_SETFLAGS:
 	case OES_EVENT_NOTIFY_SETFLAGS:
-		return (msg->em_event_data.setflags.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.setflags.file.ef_path_off));
 	case OES_EVENT_AUTH_SETUTIMES:
 	case OES_EVENT_NOTIFY_SETUTIMES:
-		return (msg->em_event_data.setutimes.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.setutimes.file.ef_path_off));
 	case OES_EVENT_AUTH_CHDIR:
 	case OES_EVENT_NOTIFY_CHDIR:
-		return (msg->em_event_data.chdir.dir.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.chdir.dir.ef_path_off));
 	case OES_EVENT_AUTH_CHROOT:
 	case OES_EVENT_NOTIFY_CHROOT:
-		return (msg->em_event_data.chroot.dir.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.chroot.dir.ef_path_off));
 	case OES_EVENT_AUTH_SETEXTATTR:
 	case OES_EVENT_NOTIFY_SETEXTATTR:
-		return (msg->em_event_data.setextattr.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.setextattr.file.ef_path_off));
 	case OES_EVENT_AUTH_GETEXTATTR:
 	case OES_EVENT_NOTIFY_GETEXTATTR:
-		return (msg->em_event_data.getextattr.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.getextattr.file.ef_path_off));
 	case OES_EVENT_AUTH_DELETEEXTATTR:
 	case OES_EVENT_NOTIFY_DELETEEXTATTR:
-		return (msg->em_event_data.deleteextattr.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.deleteextattr.file.ef_path_off));
 	case OES_EVENT_AUTH_LISTEXTATTR:
 	case OES_EVENT_NOTIFY_LISTEXTATTR:
-		return (msg->em_event_data.listextattr.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.listextattr.file.ef_path_off));
 	case OES_EVENT_AUTH_GETACL:
 	case OES_EVENT_NOTIFY_GETACL:
-		return (msg->em_event_data.getacl.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.getacl.file.ef_path_off));
 	case OES_EVENT_AUTH_SETACL:
 	case OES_EVENT_NOTIFY_SETACL:
-		return (msg->em_event_data.setacl.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.setacl.file.ef_path_off));
 	case OES_EVENT_AUTH_DELETEACL:
 	case OES_EVENT_NOTIFY_DELETEACL:
-		return (msg->em_event_data.deleteacl.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.deleteacl.file.ef_path_off));
 	case OES_EVENT_AUTH_RELABEL:
 	case OES_EVENT_NOTIFY_RELABEL:
-		return (msg->em_event_data.relabel.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.relabel.file.ef_path_off));
 	case OES_EVENT_AUTH_MOUNT:
 	case OES_EVENT_NOTIFY_MOUNT:
-		return (msg->em_event_data.mount.mountpoint.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.mount.mountpoint.ef_path_off));
 	case OES_EVENT_NOTIFY_UNMOUNT:
-		return (msg->em_event_data.unmount.mountpoint.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.unmount.mountpoint.ef_path_off));
 	case OES_EVENT_AUTH_SWAPON:
 	case OES_EVENT_NOTIFY_SWAPON:
-		return (msg->em_event_data.swapon.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.swapon.file.ef_path_off));
 	case OES_EVENT_AUTH_SWAPOFF:
 	case OES_EVENT_NOTIFY_SWAPOFF:
-		return (msg->em_event_data.swapoff.file.ef_path);
+		return (oes_msg_string(msg, msg->em_event_data.swapoff.file.ef_path_off));
 	case OES_EVENT_NOTIFY_MOUNT_STAT:
-		return (msg->em_event_data.mount_stat.fspath);
+		return (oes_msg_string(msg, msg->em_event_data.mount_stat.fspath_off));
 	default:
 		return (NULL);
 	}
@@ -1003,10 +1066,10 @@ oes_event_target_path(const struct oes_pending *ep)
 	switch (msg->em_event) {
 	case OES_EVENT_AUTH_RENAME:
 	case OES_EVENT_NOTIFY_RENAME:
-		return (msg->em_event_data.rename.dst_name);
+		return (oes_msg_string(msg, msg->em_event_data.rename.dst_name_off));
 	case OES_EVENT_AUTH_LINK:
 	case OES_EVENT_NOTIFY_LINK:
-		return (msg->em_event_data.link.name);
+		return (oes_msg_string(msg, msg->em_event_data.link.name_off));
 	default:
 		return (NULL);
 	}
@@ -1082,29 +1145,33 @@ oes_event_is_path_muted(struct oes_client *ec, const struct oes_pending *ep,
 	case OES_EVENT_AUTH_LOOKUP:
 	case OES_EVENT_NOTIFY_LOOKUP:
 		if (oes_event_path_muted_join(ec,
-		    msg->em_event_data.lookup.dir.ef_path,
-		    msg->em_event_data.lookup.name, false, false, event))
+		    oes_msg_string(msg, msg->em_event_data.lookup.dir.ef_path_off),
+		    oes_msg_string(msg, msg->em_event_data.lookup.name_off),
+		    false, false, event))
 			return (true);
 		break;
 	case OES_EVENT_AUTH_CREATE:
 	case OES_EVENT_NOTIFY_CREATE:
 		if (oes_event_path_muted_join(ec,
-		    msg->em_event_data.create.dir.ef_path,
-		    msg->em_event_data.create.file.ef_path, false, true, event))
+		    oes_msg_string(msg, msg->em_event_data.create.dir.ef_path_off),
+		    oes_msg_string(msg, msg->em_event_data.create.file.ef_path_off),
+		    false, true, event))
 			return (true);
 		break;
 	case OES_EVENT_AUTH_UNLINK:
 	case OES_EVENT_NOTIFY_UNLINK:
 		if (oes_event_path_muted_join(ec,
-		    msg->em_event_data.unlink.dir.ef_path,
-		    msg->em_event_data.unlink.file.ef_path, false, true, event))
+		    oes_msg_string(msg, msg->em_event_data.unlink.dir.ef_path_off),
+		    oes_msg_string(msg, msg->em_event_data.unlink.file.ef_path_off),
+		    false, true, event))
 			return (true);
 		break;
 	case OES_EVENT_AUTH_RENAME:
 	case OES_EVENT_NOTIFY_RENAME:
 		if (oes_event_path_muted_join(ec,
-		    msg->em_event_data.rename.src_dir.ef_path,
-		    msg->em_event_data.rename.src_file.ef_path, false, true, event))
+		    oes_msg_string(msg, msg->em_event_data.rename.src_dir.ef_path_off),
+		    oes_msg_string(msg, msg->em_event_data.rename.src_file.ef_path_off),
+		    false, true, event))
 			return (true);
 		break;
 	default:
@@ -1120,23 +1187,27 @@ oes_event_is_path_muted(struct oes_client *ec, const struct oes_pending *ep,
 	case OES_EVENT_AUTH_RENAME:
 	case OES_EVENT_NOTIFY_RENAME:
 		if (oes_event_path_muted_join(ec,
-		    msg->em_event_data.rename.dst_dir.ef_path,
-		    msg->em_event_data.rename.dst_name, true, false, event))
+		    oes_msg_string(msg, msg->em_event_data.rename.dst_dir.ef_path_off),
+		    oes_msg_string(msg, msg->em_event_data.rename.dst_name_off),
+		    true, false, event))
 			return (true);
 		break;
 	case OES_EVENT_AUTH_LINK:
-	case OES_EVENT_NOTIFY_LINK:
+	case OES_EVENT_NOTIFY_LINK: {
+		const char *link_name = oes_msg_string(msg,
+		    msg->em_event_data.link.name_off);
+
 		/* Check full path first (dir + name) */
 		if (oes_event_path_muted_join(ec,
-		    msg->em_event_data.link.dir.ef_path,
-		    msg->em_event_data.link.name, true, false, event))
+		    oes_msg_string(msg, msg->em_event_data.link.dir.ef_path_off),
+		    link_name, true, false, event))
 			return (true);
 		/* Also check just the link name (basename) for convenience */
-		if (msg->em_event_data.link.name[0] != '\0' &&
-		    oes_client_is_path_muted(ec, msg->em_event_data.link.name,
-		    true, event))
+		if (link_name[0] != '\0' &&
+		    oes_client_is_path_muted(ec, link_name, true, event))
 			return (true);
 		break;
+	}
 	default:
 		/* Other events: target_path is a full path, check directly */
 		target_path = oes_event_target_path(ep);
@@ -1170,23 +1241,28 @@ oes_accmode_to_open_flags(accmode_t accmode)
 /*
  * Clone an oes_pending for per-client delivery in NOSLEEP context.
  * Uses M_NOWAIT so may return NULL on allocation failure.
+ *
+ * Only copies the message payload; does NOT copy mutex, cv, group,
+ * or link fields from the source.  NOSLEEP events are always NOTIFY
+ * (no AUTH response tracking needed).
  */
 static struct oes_pending *
 oes_pending_clone_nosleep(const struct oes_pending *src)
 {
 	struct oes_pending *ep;
+	size_t msg_size, alloc_size;
 
-	ep = malloc(sizeof(*ep), M_OES, M_NOWAIT | M_ZERO);
+	msg_size = src->ep_msg.em_size;
+	if (msg_size < sizeof(oes_message_t))
+		msg_size = sizeof(oes_message_t);
+	alloc_size = offsetof(struct oes_pending, ep_msg) + msg_size;
+
+	ep = malloc(alloc_size, M_OES, M_NOWAIT | M_ZERO);
 	if (ep == NULL)
 		return (NULL);
 
-	/* Copy the entire structure */
-	bcopy(src, ep, sizeof(*ep));
-
-	/* Reset per-instance fields */
 	ep->ep_refcount = 1;
-	ep->ep_flags = 0;
-	/* ep_link will be set by TAILQ_INSERT */
+	bcopy(&src->ep_msg, &ep->ep_msg, msg_size);
 
 	return (ep);
 }
@@ -1268,14 +1344,20 @@ oes_proc_event_fork(void *arg __unused, struct proc *p1,
 		return;
 
 	{
+		struct oes_strtab st;
 		bool owned = mtx_owned(&p2->p_mtx);
+
+		oes_strtab_init(&st);
+		st.st_off = ep->ep_msg.em_size;
 
 		if (!owned)
 			PROC_LOCK(p2);
 		oes_fill_process(&ep->ep_msg.em_event_data.fork.child,
-		    p2, p2->p_ucred);
+		    p2, p2->p_ucred, &st, &ep->ep_msg);
 		if (!owned)
 			PROC_UNLOCK(p2);
+
+		ep->ep_msg.em_size = OES_MSG_ALIGNED(st.st_off);
 	}
 
 	oes_deliver_notify_nosleep(ep, p1);
@@ -1335,19 +1417,27 @@ oes_vfs_event_mounted(void *arg __unused, struct mount *mp,
 
 	/* Fill mount event data from mount structure */
 	sp = &mp->mnt_stat;
-	if (vp != NULL)
-		oes_fill_file(&ep->ep_msg.em_event_data.mount.mountpoint,
-		    vp, cred);
-	/* Fallback: use f_mntonname if vnode path resolution failed */
-	if (ep->ep_msg.em_event_data.mount.mountpoint.ef_path[0] == '\0')
-		strlcpy(ep->ep_msg.em_event_data.mount.mountpoint.ef_path,
-		    sp->f_mntonname,
-		    sizeof(ep->ep_msg.em_event_data.mount.mountpoint.ef_path));
-	strlcpy(ep->ep_msg.em_event_data.mount.fstype, sp->f_fstypename,
-	    sizeof(ep->ep_msg.em_event_data.mount.fstype));
-	strlcpy(ep->ep_msg.em_event_data.mount.source, sp->f_mntfromname,
-	    sizeof(ep->ep_msg.em_event_data.mount.source));
-	ep->ep_msg.em_event_data.mount.flags = mp->mnt_flag;
+	{
+		struct oes_strtab st;
+
+		oes_strtab_init(&st);
+		st.st_off = ep->ep_msg.em_size;
+
+		if (vp != NULL)
+			oes_fill_file(&ep->ep_msg.em_event_data.mount.mountpoint,
+			    vp, cred, &st, &ep->ep_msg);
+		/* Fallback: use f_mntonname if vnode path resolution failed */
+		if (ep->ep_msg.em_event_data.mount.mountpoint.ef_path_off == 0)
+			ep->ep_msg.em_event_data.mount.mountpoint.ef_path_off =
+			    oes_strtab_add(&st, &ep->ep_msg, sp->f_mntonname);
+		strlcpy(ep->ep_msg.em_event_data.mount.fstype, sp->f_fstypename,
+		    sizeof(ep->ep_msg.em_event_data.mount.fstype));
+		ep->ep_msg.em_event_data.mount.source_off =
+		    oes_strtab_add(&st, &ep->ep_msg, sp->f_mntfromname);
+		ep->ep_msg.em_event_data.mount.flags = mp->mnt_flag;
+
+		ep->ep_msg.em_size = OES_MSG_ALIGNED(st.st_off);
+	}
 
 	oes_deliver_notify_nosleep(ep, p);
 	oes_pending_rele(ep);
@@ -1382,18 +1472,26 @@ oes_vfs_event_unmounted(void *arg __unused, struct mount *mp,
 
 	/* Fill unmount event data from mount structure */
 	sp = &mp->mnt_stat;
-	oes_fill_file(&ep->ep_msg.em_event_data.unmount.mountpoint,
-	    mp->mnt_vnodecovered, cred);
-	/* Fallback: use f_mntonname if vnode path resolution failed */
-	if (ep->ep_msg.em_event_data.unmount.mountpoint.ef_path[0] == '\0')
-		strlcpy(ep->ep_msg.em_event_data.unmount.mountpoint.ef_path,
-		    sp->f_mntonname,
-		    sizeof(ep->ep_msg.em_event_data.unmount.mountpoint.ef_path));
-	strlcpy(ep->ep_msg.em_event_data.unmount.fstype, sp->f_fstypename,
-	    sizeof(ep->ep_msg.em_event_data.unmount.fstype));
-	strlcpy(ep->ep_msg.em_event_data.unmount.source, sp->f_mntfromname,
-	    sizeof(ep->ep_msg.em_event_data.unmount.source));
-	ep->ep_msg.em_event_data.unmount.flags = mp->mnt_flag;
+	{
+		struct oes_strtab st;
+
+		oes_strtab_init(&st);
+		st.st_off = ep->ep_msg.em_size;
+
+		oes_fill_file(&ep->ep_msg.em_event_data.unmount.mountpoint,
+		    mp->mnt_vnodecovered, cred, &st, &ep->ep_msg);
+		/* Fallback: use f_mntonname if vnode path resolution failed */
+		if (ep->ep_msg.em_event_data.unmount.mountpoint.ef_path_off == 0)
+			ep->ep_msg.em_event_data.unmount.mountpoint.ef_path_off =
+			    oes_strtab_add(&st, &ep->ep_msg, sp->f_mntonname);
+		strlcpy(ep->ep_msg.em_event_data.unmount.fstype, sp->f_fstypename,
+		    sizeof(ep->ep_msg.em_event_data.unmount.fstype));
+		ep->ep_msg.em_event_data.unmount.source_off =
+		    oes_strtab_add(&st, &ep->ep_msg, sp->f_mntfromname);
+		ep->ep_msg.em_event_data.unmount.flags = mp->mnt_flag;
+
+		ep->ep_msg.em_size = OES_MSG_ALIGNED(st.st_off);
+	}
 
 	oes_deliver_notify_nosleep(ep, p);
 	oes_pending_rele(ep);
@@ -1439,344 +1537,396 @@ oes_kld_event_unload(void *arg __unused, const char *name, caddr_t addr __unused
 }
 
 static void
-oes_fill_event_file(oes_file_t *file, struct vnode *vp, struct ucred *cred)
+oes_fill_event_file(oes_file_t *file, struct vnode *vp, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
-
 	if (vp != NULL)
-		oes_fill_file(file, vp, cred);
+		oes_fill_file(file, vp, cred, st, msg_base);
 }
 
-static void
-oes_event_join_component(char *dst, size_t dstlen, const char *dir)
+/*
+ * Join a directory path and a component name into a full path, adding
+ * the result to the string table.  Returns the string table offset.
+ * If either part is empty, returns 0 (empty).
+ */
+static uint32_t
+oes_strtab_join_path(struct oes_strtab *st, void *msg_base,
+    const char *dir, const char *name)
 {
 	char fullpath[MAXPATHLEN];
 
-	if (dst == NULL || dir == NULL)
-		return;
-	if (dst[0] == '\0' || dir[0] == '\0')
-		return;
+	if (dir == NULL || name == NULL)
+		return (0);
+	if (dir[0] == '\0' || name[0] == '\0')
+		return (0);
 
-	oes_build_path(fullpath, sizeof(fullpath), dir, dst);
-	strlcpy(dst, fullpath, dstlen);
+	oes_build_path(fullpath, sizeof(fullpath), dir, name);
+	return (oes_strtab_add(st, msg_base, fullpath));
 }
 
 static void
 oes_fill_event_open(struct oes_pending *ep, struct vnode *vp,
-    accmode_t accmode, struct ucred *cred)
+    accmode_t accmode, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.open.file, vp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.open.file, vp, cred,
+	    st, msg_base);
 	ep->ep_msg.em_event_data.open.flags =
 	    oes_accmode_to_open_flags(accmode);
 }
 
 static void
 oes_fill_event_access(struct oes_pending *ep, struct vnode *vp,
-    accmode_t accmode, struct ucred *cred)
+    accmode_t accmode, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.access.file, vp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.access.file, vp, cred,
+	    st, msg_base);
 	ep->ep_msg.em_event_data.access.accmode = accmode;
 }
 
 static void
-oes_fill_event_rw(struct oes_pending *ep, struct vnode *vp, struct ucred *cred)
+oes_fill_event_rw(struct oes_pending *ep, struct vnode *vp, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.rw.file, vp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.rw.file, vp, cred,
+	    st, msg_base);
 }
 
 static void
 oes_fill_event_stat(struct oes_pending *ep, struct vnode *vp,
-    struct ucred *cred)
+    struct ucred *cred, struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.stat.file, vp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.stat.file, vp, cred,
+	    st, msg_base);
 }
 
 static void
 oes_fill_event_poll(struct oes_pending *ep, struct vnode *vp,
-    struct ucred *cred)
+    struct ucred *cred, struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.poll.file, vp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.poll.file, vp, cred,
+	    st, msg_base);
 }
 
 static void
 oes_fill_event_revoke(struct oes_pending *ep, struct vnode *vp,
-    struct ucred *cred)
+    struct ucred *cred, struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.revoke.file, vp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.revoke.file, vp, cred,
+	    st, msg_base);
 }
 
 static void
 oes_fill_event_readlink(struct oes_pending *ep, struct vnode *vp,
-    struct ucred *cred)
+    struct ucred *cred, struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.readlink.file, vp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.readlink.file, vp, cred,
+	    st, msg_base);
 }
 
 static void
 oes_fill_event_readdir(struct oes_pending *ep, struct vnode *dvp,
-    struct ucred *cred)
+    struct ucred *cred, struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.readdir.dir, dvp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.readdir.dir, dvp, cred,
+	    st, msg_base);
 }
 
 static void
 oes_fill_event_lookup(struct oes_pending *ep, struct vnode *dvp,
-    struct componentname *cnp, struct ucred *cred)
+    struct componentname *cnp, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
+	char namebuf[MAXNAMLEN + 1];
 
-	oes_fill_event_file(&ep->ep_msg.em_event_data.lookup.dir, dvp, cred);
-	oes_copy_component(ep->ep_msg.em_event_data.lookup.name,
-	    sizeof(ep->ep_msg.em_event_data.lookup.name), cnp);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.lookup.dir, dvp, cred,
+	    st, msg_base);
+	oes_copy_component(namebuf, sizeof(namebuf), cnp);
+	ep->ep_msg.em_event_data.lookup.name_off =
+	    oes_strtab_add(st, msg_base, namebuf);
 }
 
 static void
 oes_fill_event_create(struct oes_pending *ep, struct vnode *dvp,
-    struct vattr *vap, struct componentname *cnp, struct ucred *cred)
+    struct vattr *vap, struct componentname *cnp, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
+	char namebuf[MAXNAMLEN + 1];
+	const char *dir_path;
+	uint32_t file_path_off;
 
-	oes_fill_event_file(&ep->ep_msg.em_event_data.create.dir, dvp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.create.dir, dvp, cred,
+	    st, msg_base);
 	oes_fill_file_from_vap(&ep->ep_msg.em_event_data.create.file, vap);
-	oes_copy_component(ep->ep_msg.em_event_data.create.file.ef_path,
-	    sizeof(ep->ep_msg.em_event_data.create.file.ef_path), cnp);
-	oes_event_join_component(ep->ep_msg.em_event_data.create.file.ef_path,
-	    sizeof(ep->ep_msg.em_event_data.create.file.ef_path),
-	    ep->ep_msg.em_event_data.create.dir.ef_path);
+
+	/* Build file path from dir + component name */
+	oes_copy_component(namebuf, sizeof(namebuf), cnp);
+	dir_path = oes_msg_string(&ep->ep_msg,
+	    ep->ep_msg.em_event_data.create.dir.ef_path_off);
+	file_path_off = oes_strtab_join_path(st, msg_base, dir_path, namebuf);
+	if (file_path_off == 0 && namebuf[0] != '\0')
+		file_path_off = oes_strtab_add(st, msg_base, namebuf);
+	ep->ep_msg.em_event_data.create.file.ef_path_off = file_path_off;
+
 	if (vap != NULL)
 		ep->ep_msg.em_event_data.create.mode = vap->va_mode;
 }
 
 static void
 oes_fill_event_unlink(struct oes_pending *ep, struct vnode *dvp,
-    struct vnode *vp, struct componentname *cnp, struct ucred *cred)
+    struct vnode *vp, struct componentname *cnp, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
+	char namebuf[MAXNAMLEN + 1];
+	const char *dir_path;
+	uint32_t file_path_off;
 
-	oes_fill_event_file(&ep->ep_msg.em_event_data.unlink.dir, dvp, cred);
-	oes_fill_event_file(&ep->ep_msg.em_event_data.unlink.file, vp, cred);
-	oes_copy_component(ep->ep_msg.em_event_data.unlink.file.ef_path,
-	    sizeof(ep->ep_msg.em_event_data.unlink.file.ef_path), cnp);
-	oes_event_join_component(ep->ep_msg.em_event_data.unlink.file.ef_path,
-	    sizeof(ep->ep_msg.em_event_data.unlink.file.ef_path),
-	    ep->ep_msg.em_event_data.unlink.dir.ef_path);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.unlink.dir, dvp, cred,
+	    st, msg_base);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.unlink.file, vp, cred,
+	    st, msg_base);
+
+	/* Build file path from dir + component name */
+	oes_copy_component(namebuf, sizeof(namebuf), cnp);
+	dir_path = oes_msg_string(&ep->ep_msg,
+	    ep->ep_msg.em_event_data.unlink.dir.ef_path_off);
+	file_path_off = oes_strtab_join_path(st, msg_base, dir_path, namebuf);
+	if (file_path_off != 0)
+		ep->ep_msg.em_event_data.unlink.file.ef_path_off = file_path_off;
 }
 
 static void
 oes_fill_event_rename(struct oes_pending *ep,
     const struct oes_rename_ctx *rename_ctx, struct vnode *dvp,
-    struct componentname *cnp, struct ucred *cred)
+    struct componentname *cnp, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
+	char namebuf[MAXNAMLEN + 1];
 
 	if (rename_ctx != NULL) {
 		ep->ep_msg.em_event_data.rename.src_dir =
 		    rename_ctx->er_src_dir;
 		ep->ep_msg.em_event_data.rename.src_file =
 		    rename_ctx->er_src_file;
+		/* Add paths from context's own buffers to this message's strtab */
+		ep->ep_msg.em_event_data.rename.src_dir.ef_path_off =
+		    oes_strtab_add(st, msg_base, rename_ctx->er_src_dir_path);
+		ep->ep_msg.em_event_data.rename.src_file.ef_path_off =
+		    oes_strtab_add(st, msg_base, rename_ctx->er_src_file_path);
 	}
-	oes_fill_event_file(&ep->ep_msg.em_event_data.rename.dst_dir, dvp, cred);
-	oes_copy_component(ep->ep_msg.em_event_data.rename.dst_name,
-	    sizeof(ep->ep_msg.em_event_data.rename.dst_name), cnp);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.rename.dst_dir, dvp, cred,
+	    st, msg_base);
+	oes_copy_component(namebuf, sizeof(namebuf), cnp);
+	ep->ep_msg.em_event_data.rename.dst_name_off =
+	    oes_strtab_add(st, msg_base, namebuf);
 }
 
 static void
 oes_fill_event_link(struct oes_pending *ep, struct vnode *vp,
-    struct vnode *dvp, struct componentname *cnp, struct ucred *cred)
+    struct vnode *dvp, struct componentname *cnp, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
+	char namebuf[MAXNAMLEN + 1];
 
-	oes_fill_event_file(&ep->ep_msg.em_event_data.link.target, vp, cred);
-	oes_fill_event_file(&ep->ep_msg.em_event_data.link.dir, dvp, cred);
-	oes_copy_component(ep->ep_msg.em_event_data.link.name,
-	    sizeof(ep->ep_msg.em_event_data.link.name), cnp);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.link.target, vp, cred,
+	    st, msg_base);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.link.dir, dvp, cred,
+	    st, msg_base);
+	oes_copy_component(namebuf, sizeof(namebuf), cnp);
+	ep->ep_msg.em_event_data.link.name_off =
+	    oes_strtab_add(st, msg_base, namebuf);
 }
 
 static void
 oes_fill_event_kldload(struct oes_pending *ep, struct vnode *vp,
-    struct ucred *cred)
+    struct ucred *cred, struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.kldload.file, vp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.kldload.file, vp, cred,
+	    st, msg_base);
 }
 
 static void
 oes_fill_event_mmap(struct oes_pending *ep, struct vnode *vp, int prot,
-    int mmap_flags, struct ucred *cred)
+    int mmap_flags, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.mmap.file, vp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.mmap.file, vp, cred,
+	    st, msg_base);
 	ep->ep_msg.em_event_data.mmap.prot = prot;
 	ep->ep_msg.em_event_data.mmap.flags = mmap_flags;
 }
 
 static void
 oes_fill_event_mprotect(struct oes_pending *ep, struct vnode *vp, int prot,
-    struct ucred *cred)
+    struct ucred *cred, struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.mprotect.file, vp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.mprotect.file, vp, cred,
+	    st, msg_base);
 	ep->ep_msg.em_event_data.mprotect.prot = prot;
 }
 
 static void
 oes_fill_event_setmode(struct oes_pending *ep, struct vnode *vp, mode_t mode,
-    struct ucred *cred)
+    struct ucred *cred, struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.setmode.file, vp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.setmode.file, vp, cred,
+	    st, msg_base);
 	ep->ep_msg.em_event_data.setmode.mode = mode;
 }
 
 static void
 oes_fill_event_setowner(struct oes_pending *ep, struct vnode *vp, uid_t uid,
-    gid_t gid, struct ucred *cred)
+    gid_t gid, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.setowner.file, vp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.setowner.file, vp, cred,
+	    st, msg_base);
 	ep->ep_msg.em_event_data.setowner.uid = uid;
 	ep->ep_msg.em_event_data.setowner.gid = gid;
 }
 
 static void
 oes_fill_event_setflags(struct oes_pending *ep, struct vnode *vp,
-    u_long flags, struct ucred *cred)
+    u_long flags, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.setflags.file, vp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.setflags.file, vp, cred,
+	    st, msg_base);
 	ep->ep_msg.em_event_data.setflags.flags = flags;
 }
 
 static void
 oes_fill_event_setutimes(struct oes_pending *ep, struct vnode *vp,
-    struct timespec atime, struct timespec mtime, struct ucred *cred)
+    struct timespec atime, struct timespec mtime, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.setutimes.file, vp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.setutimes.file, vp, cred,
+	    st, msg_base);
 	ep->ep_msg.em_event_data.setutimes.atime = atime;
 	ep->ep_msg.em_event_data.setutimes.mtime = mtime;
 }
 
 static void
 oes_fill_event_chdir(struct oes_pending *ep, struct vnode *dvp,
-    struct ucred *cred)
+    struct ucred *cred, struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.chdir.dir, dvp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.chdir.dir, dvp, cred,
+	    st, msg_base);
 }
 
 static void
 oes_fill_event_chroot(struct oes_pending *ep, struct vnode *dvp,
-    struct ucred *cred)
+    struct ucred *cred, struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.chroot.dir, dvp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.chroot.dir, dvp, cred,
+	    st, msg_base);
 }
 
 static void
 oes_fill_event_setextattr(struct oes_pending *ep, struct vnode *vp,
-    int attrnamespace, const char *attrname, struct ucred *cred)
+    int attrnamespace, const char *attrname, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.setextattr.file, vp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.setextattr.file, vp, cred,
+	    st, msg_base);
 	ep->ep_msg.em_event_data.setextattr.attrnamespace = attrnamespace;
-	if (attrname != NULL) {
-		strlcpy(ep->ep_msg.em_event_data.setextattr.name, attrname,
-		    sizeof(ep->ep_msg.em_event_data.setextattr.name));
-	}
+	if (attrname != NULL)
+		ep->ep_msg.em_event_data.setextattr.name_off =
+		    oes_strtab_add(st, msg_base, attrname);
 }
 
 static void
 oes_fill_event_getextattr(struct oes_pending *ep, struct vnode *vp,
-    int attrnamespace, const char *attrname, struct ucred *cred)
+    int attrnamespace, const char *attrname, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.getextattr.file, vp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.getextattr.file, vp, cred,
+	    st, msg_base);
 	ep->ep_msg.em_event_data.getextattr.attrnamespace = attrnamespace;
-	if (attrname != NULL) {
-		strlcpy(ep->ep_msg.em_event_data.getextattr.name, attrname,
-		    sizeof(ep->ep_msg.em_event_data.getextattr.name));
-	}
+	if (attrname != NULL)
+		ep->ep_msg.em_event_data.getextattr.name_off =
+		    oes_strtab_add(st, msg_base, attrname);
 }
 
 static void
 oes_fill_event_deleteextattr(struct oes_pending *ep, struct vnode *vp,
-    int attrnamespace, const char *attrname, struct ucred *cred)
+    int attrnamespace, const char *attrname, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.deleteextattr.file, vp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.deleteextattr.file, vp,
+	    cred, st, msg_base);
 	ep->ep_msg.em_event_data.deleteextattr.attrnamespace = attrnamespace;
-	if (attrname != NULL) {
-		strlcpy(ep->ep_msg.em_event_data.deleteextattr.name, attrname,
-		    sizeof(ep->ep_msg.em_event_data.deleteextattr.name));
-	}
+	if (attrname != NULL)
+		ep->ep_msg.em_event_data.deleteextattr.name_off =
+		    oes_strtab_add(st, msg_base, attrname);
 }
 
 static void
 oes_fill_event_listextattr(struct oes_pending *ep, struct vnode *vp,
-    int attrnamespace, struct ucred *cred)
+    int attrnamespace, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.listextattr.file, vp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.listextattr.file, vp,
+	    cred, st, msg_base);
 	ep->ep_msg.em_event_data.listextattr.attrnamespace = attrnamespace;
-	ep->ep_msg.em_event_data.listextattr.name[0] = '\0';
+	/* name_off stays 0 (empty) for list operations */
 }
 
 static void
 oes_fill_event_acl(oes_event_acl_t *acl, struct vnode *vp, acl_type_t type,
-    struct ucred *cred)
+    struct ucred *cred, struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&acl->file, vp, cred);
+	oes_fill_event_file(&acl->file, vp, cred, st, msg_base);
 	acl->type = (int)type;
 }
 
 static void
 oes_fill_event_getacl(struct oes_pending *ep, struct vnode *vp,
-    acl_type_t type, struct ucred *cred)
+    acl_type_t type, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_acl(&ep->ep_msg.em_event_data.getacl, vp, type, cred);
+	oes_fill_event_acl(&ep->ep_msg.em_event_data.getacl, vp, type, cred,
+	    st, msg_base);
 }
 
 static void
 oes_fill_event_setacl(struct oes_pending *ep, struct vnode *vp,
-    acl_type_t type, struct ucred *cred)
+    acl_type_t type, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_acl(&ep->ep_msg.em_event_data.setacl, vp, type, cred);
+	oes_fill_event_acl(&ep->ep_msg.em_event_data.setacl, vp, type, cred,
+	    st, msg_base);
 }
 
 static void
 oes_fill_event_deleteacl(struct oes_pending *ep, struct vnode *vp,
-    acl_type_t type, struct ucred *cred)
+    acl_type_t type, struct ucred *cred,
+    struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_acl(&ep->ep_msg.em_event_data.deleteacl, vp, type, cred);
+	oes_fill_event_acl(&ep->ep_msg.em_event_data.deleteacl, vp, type, cred,
+	    st, msg_base);
 }
 
 static void
 oes_fill_event_relabel(struct oes_pending *ep, struct vnode *vp,
-    struct ucred *cred)
+    struct ucred *cred, struct oes_strtab *st, void *msg_base)
 {
-
-	oes_fill_event_file(&ep->ep_msg.em_event_data.relabel.file, vp, cred);
+	oes_fill_event_file(&ep->ep_msg.em_event_data.relabel.file, vp, cred,
+	    st, msg_base);
 }
 
 static void
 oes_fill_event_signal(struct oes_pending *ep, struct proc *target_proc,
-    int signum)
+    int signum, struct oes_strtab *st, void *msg_base)
 {
-
 	if (target_proc != NULL) {
 		bool owned = mtx_owned(&target_proc->p_mtx);
 
 		if (!owned)
 			PROC_LOCK(target_proc);
 		oes_fill_process(&ep->ep_msg.em_event_data.signal.target,
-		    target_proc, NULL);
+		    target_proc, NULL, st, msg_base);
 		if (!owned)
 			PROC_UNLOCK(target_proc);
 	}
@@ -1786,14 +1936,12 @@ oes_fill_event_signal(struct oes_pending *ep, struct proc *target_proc,
 static void
 oes_fill_event_setuid(struct oes_pending *ep, uid_t uid)
 {
-
 	ep->ep_msg.em_event_data.setuid.uid = uid;
 }
 
 static void
 oes_fill_event_setgid(struct oes_pending *ep, gid_t gid)
 {
-
 	ep->ep_msg.em_event_data.setgid.gid = gid;
 }
 
@@ -1855,130 +2003,160 @@ oes_generate_vnode_event(oes_event_type_t event,
 
 	/*
 	 * Fill event-specific data based on event type.
+	 * Continue appending to the string table where oes_pending_alloc
+	 * left off (after em_process strings).
 	 */
 	{
+		struct oes_strtab st;
+
+		oes_strtab_init(&st);
+		st.st_off = ep->ep_msg.em_size;
+
 		switch (event) {
 		case OES_EVENT_AUTH_OPEN:
 		case OES_EVENT_NOTIFY_OPEN:
-			oes_fill_event_open(ep, vp, accmode, cred);
+			oes_fill_event_open(ep, vp, accmode, cred, &st,
+			    &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_ACCESS:
 		case OES_EVENT_NOTIFY_ACCESS:
-			oes_fill_event_access(ep, vp, accmode, cred);
+			oes_fill_event_access(ep, vp, accmode, cred, &st,
+			    &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_READ:
 		case OES_EVENT_NOTIFY_READ:
 		case OES_EVENT_AUTH_WRITE:
 		case OES_EVENT_NOTIFY_WRITE:
-			oes_fill_event_rw(ep, vp, cred);
+			oes_fill_event_rw(ep, vp, cred, &st, &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_STAT:
 		case OES_EVENT_NOTIFY_STAT:
-			oes_fill_event_stat(ep, vp, cred);
+			oes_fill_event_stat(ep, vp, cred, &st, &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_POLL:
 		case OES_EVENT_NOTIFY_POLL:
-			oes_fill_event_poll(ep, vp, cred);
+			oes_fill_event_poll(ep, vp, cred, &st, &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_REVOKE:
 		case OES_EVENT_NOTIFY_REVOKE:
-			oes_fill_event_revoke(ep, vp, cred);
+			oes_fill_event_revoke(ep, vp, cred, &st, &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_READLINK:
 		case OES_EVENT_NOTIFY_READLINK:
-			oes_fill_event_readlink(ep, vp, cred);
+			oes_fill_event_readlink(ep, vp, cred, &st,
+			    &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_READDIR:
 		case OES_EVENT_NOTIFY_READDIR:
-			oes_fill_event_readdir(ep, dvp, cred);
+			oes_fill_event_readdir(ep, dvp, cred, &st,
+			    &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_LOOKUP:
 		case OES_EVENT_NOTIFY_LOOKUP:
-			oes_fill_event_lookup(ep, dvp, cnp, cred);
+			oes_fill_event_lookup(ep, dvp, cnp, cred, &st,
+			    &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_CREATE:
 		case OES_EVENT_NOTIFY_CREATE:
-			oes_fill_event_create(ep, dvp, vap, cnp, cred);
+			oes_fill_event_create(ep, dvp, vap, cnp, cred, &st,
+			    &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_UNLINK:
 		case OES_EVENT_NOTIFY_UNLINK:
-			oes_fill_event_unlink(ep, dvp, vp, cnp, cred);
+			oes_fill_event_unlink(ep, dvp, vp, cnp, cred, &st,
+			    &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_RENAME:
 		case OES_EVENT_NOTIFY_RENAME:
-			oes_fill_event_rename(ep, rename_ctx, dvp, cnp, cred);
+			oes_fill_event_rename(ep, rename_ctx, dvp, cnp, cred,
+			    &st, &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_LINK:
-			oes_fill_event_link(ep, vp, dvp, cnp, cred);
+			oes_fill_event_link(ep, vp, dvp, cnp, cred, &st,
+			    &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_KLDLOAD:
 		case OES_EVENT_NOTIFY_KLDLOAD:
-			oes_fill_event_kldload(ep, vp, cred);
+			oes_fill_event_kldload(ep, vp, cred, &st,
+			    &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_MMAP:
-			oes_fill_event_mmap(ep, vp, prot, mmap_flags, cred);
+			oes_fill_event_mmap(ep, vp, prot, mmap_flags, cred,
+			    &st, &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_MPROTECT:
-			oes_fill_event_mprotect(ep, vp, prot, cred);
+			oes_fill_event_mprotect(ep, vp, prot, cred, &st,
+			    &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_SETMODE:
 		case OES_EVENT_NOTIFY_SETMODE:
-			oes_fill_event_setmode(ep, vp, mode, cred);
+			oes_fill_event_setmode(ep, vp, mode, cred, &st,
+			    &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_SETOWNER:
 		case OES_EVENT_NOTIFY_SETOWNER:
-			oes_fill_event_setowner(ep, vp, owner_uid, owner_gid, cred);
+			oes_fill_event_setowner(ep, vp, owner_uid, owner_gid,
+			    cred, &st, &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_SETFLAGS:
 		case OES_EVENT_NOTIFY_SETFLAGS:
-			oes_fill_event_setflags(ep, vp, fflags, cred);
+			oes_fill_event_setflags(ep, vp, fflags, cred, &st,
+			    &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_SETUTIMES:
 		case OES_EVENT_NOTIFY_SETUTIMES:
-			oes_fill_event_setutimes(ep, vp, atime, mtime, cred);
+			oes_fill_event_setutimes(ep, vp, atime, mtime, cred,
+			    &st, &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_CHDIR:
-			oes_fill_event_chdir(ep, dvp, cred);
+			oes_fill_event_chdir(ep, dvp, cred, &st, &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_CHROOT:
-			oes_fill_event_chroot(ep, dvp, cred);
+			oes_fill_event_chroot(ep, dvp, cred, &st,
+			    &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_SETEXTATTR:
 			oes_fill_event_setextattr(ep, vp, attrnamespace,
-			    attrname, cred);
+			    attrname, cred, &st, &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_GETEXTATTR:
 		case OES_EVENT_NOTIFY_GETEXTATTR:
 			oes_fill_event_getextattr(ep, vp, attrnamespace,
-			    attrname, cred);
+			    attrname, cred, &st, &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_DELETEEXTATTR:
 		case OES_EVENT_NOTIFY_DELETEEXTATTR:
 			oes_fill_event_deleteextattr(ep, vp, attrnamespace,
-			    attrname, cred);
+			    attrname, cred, &st, &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_LISTEXTATTR:
 		case OES_EVENT_NOTIFY_LISTEXTATTR:
-			oes_fill_event_listextattr(ep, vp, attrnamespace, cred);
+			oes_fill_event_listextattr(ep, vp, attrnamespace, cred,
+			    &st, &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_GETACL:
 		case OES_EVENT_NOTIFY_GETACL:
-			oes_fill_event_getacl(ep, vp, acl_type, cred);
+			oes_fill_event_getacl(ep, vp, acl_type, cred, &st,
+			    &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_SETACL:
 		case OES_EVENT_NOTIFY_SETACL:
-			oes_fill_event_setacl(ep, vp, acl_type, cred);
+			oes_fill_event_setacl(ep, vp, acl_type, cred, &st,
+			    &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_DELETEACL:
 		case OES_EVENT_NOTIFY_DELETEACL:
-			oes_fill_event_deleteacl(ep, vp, acl_type, cred);
+			oes_fill_event_deleteacl(ep, vp, acl_type, cred, &st,
+			    &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_RELABEL:
 		case OES_EVENT_NOTIFY_RELABEL:
-			oes_fill_event_relabel(ep, vp, cred);
+			oes_fill_event_relabel(ep, vp, cred, &st,
+			    &ep->ep_msg);
 			break;
 		case OES_EVENT_NOTIFY_SIGNAL:
-			oes_fill_event_signal(ep, target_proc, signum);
+			oes_fill_event_signal(ep, target_proc, signum, &st,
+			    &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_PTRACE:
 		case OES_EVENT_NOTIFY_PTRACE:
@@ -1989,7 +2167,7 @@ oes_generate_vnode_event(oes_event_type_t event,
 					PROC_LOCK(target_proc);
 				oes_fill_process(
 				    &ep->ep_msg.em_event_data.ptrace.target,
-				    target_proc, NULL);
+				    target_proc, NULL, &st, &ep->ep_msg);
 				if (!tp_owned)
 					PROC_UNLOCK(target_proc);
 			}
@@ -2063,9 +2241,9 @@ oes_generate_vnode_event(oes_event_type_t event,
 					strlcpy(ep->ep_msg.em_event_data.mount_stat.fstype,
 					    info->mp->mnt_vfc->vfc_name,
 					    sizeof(ep->ep_msg.em_event_data.mount_stat.fstype));
-				strlcpy(ep->ep_msg.em_event_data.mount_stat.fspath,
-				    info->mp->mnt_stat.f_mntonname,
-				    sizeof(ep->ep_msg.em_event_data.mount_stat.fspath));
+				ep->ep_msg.em_event_data.mount_stat.fspath_off =
+				    oes_strtab_add(&st, &ep->ep_msg,
+				    info->mp->mnt_stat.f_mntonname);
 			}
 			break;
 		case OES_EVENT_NOTIFY_PRIV_CHECK:
@@ -2096,7 +2274,8 @@ oes_generate_vnode_event(oes_event_type_t event,
 						PROC_LOCK(info->target_proc);
 					oes_fill_process(
 					    &ep->ep_msg.em_event_data.proc_sched.target,
-					    info->target_proc, NULL);
+					    info->target_proc, NULL, &st,
+					    &ep->ep_msg);
 					if (!tp_owned)
 						PROC_UNLOCK(info->target_proc);
 				}
@@ -2107,33 +2286,35 @@ oes_generate_vnode_event(oes_event_type_t event,
 			break;
 		case OES_EVENT_NOTIFY_SYSCTL:
 			if (sysctl_name != NULL)
-				strlcpy(ep->ep_msg.em_event_data.sysctl.name,
-				    sysctl_name,
-				    sizeof(ep->ep_msg.em_event_data.sysctl.name));
+				ep->ep_msg.em_event_data.sysctl.name_off =
+				    oes_strtab_add(&st, &ep->ep_msg,
+				    sysctl_name);
 			ep->ep_msg.em_event_data.sysctl.op = sysctl_op;
 			break;
 		case OES_EVENT_NOTIFY_KENV:
 			if (kenv_name != NULL)
-				strlcpy(ep->ep_msg.em_event_data.kenv.name,
-				    kenv_name,
-				    sizeof(ep->ep_msg.em_event_data.kenv.name));
+				ep->ep_msg.em_event_data.kenv.name_off =
+				    oes_strtab_add(&st, &ep->ep_msg,
+				    kenv_name);
 			ep->ep_msg.em_event_data.kenv.op = kenv_op;
 			break;
 		case OES_EVENT_AUTH_SWAPON:
 		case OES_EVENT_NOTIFY_SWAPON:
 			if (vp != NULL)
 				oes_fill_file(&ep->ep_msg.em_event_data.swapon.file,
-				    vp, cred);
+				    vp, cred, &st, &ep->ep_msg);
 			break;
 		case OES_EVENT_AUTH_SWAPOFF:
 		case OES_EVENT_NOTIFY_SWAPOFF:
 			if (vp != NULL)
 				oes_fill_file(&ep->ep_msg.em_event_data.swapoff.file,
-				    vp, cred);
+				    vp, cred, &st, &ep->ep_msg);
 			break;
 		default:
 			break;
 		}
+
+		ep->ep_msg.em_size = OES_MSG_ALIGNED(st.st_off);
 	}
 
 	/* Use non-blocking delivery for NOSLEEP hooks */
@@ -2185,85 +2366,99 @@ oes_generate_exec_event(struct ucred *cred, struct vnode *vp,
 		return (0);
 	}
 
-	if (vp != NULL)
-		oes_fill_file(&ep->ep_msg.em_event_data.exec.executable, vp,
-		    cred);
+	{
+		struct oes_strtab st;
+		uint32_t exec_path_off;
 
-	/* Pre-exec snapshot */
-	PROC_LOCK(p);
-	oes_fill_process(&ep->ep_msg.em_event_data.exec.target, p, NULL);
-	PROC_UNLOCK(p);
+		oes_strtab_init(&st);
+		st.st_off = ep->ep_msg.em_size;
 
-	if (imgp != NULL && imgp->execpath != NULL) {
-		strlcpy(ep->ep_msg.em_event_data.exec.executable.ef_path,
-		    imgp->execpath,
-		    sizeof(ep->ep_msg.em_event_data.exec.executable.ef_path));
-		strlcpy(ep->ep_msg.em_process.ep_path, imgp->execpath,
-		    sizeof(ep->ep_msg.em_process.ep_path));
-		strlcpy(ep->ep_msg.em_event_data.exec.target.ep_path,
-		    imgp->execpath,
-		    sizeof(ep->ep_msg.em_event_data.exec.target.ep_path));
-	}
+		if (vp != NULL)
+			oes_fill_file(&ep->ep_msg.em_event_data.exec.executable,
+			    vp, cred, &st, &ep->ep_msg);
 
-	if (imgp != NULL && imgp->args != NULL) {
-		struct image_args *args = imgp->args;
-		oes_event_exec_t *exec = &ep->ep_msg.em_event_data.exec;
-		size_t argv_len, envp_len, total_len;
-		size_t copy_argv, copy_envp;
-		char *envv_start;
-		size_t offset = 0;
+		/* Pre-exec snapshot */
+		PROC_LOCK(p);
+		oes_fill_process(&ep->ep_msg.em_event_data.exec.target, p, NULL,
+		    &st, &ep->ep_msg);
+		PROC_UNLOCK(p);
 
-		exec->argc = args->argc;
-		exec->envc = args->envc;
-		exec->argv_len = 0;
-		exec->envp_len = 0;
-		exec->flags = 0;
+		if (imgp != NULL && imgp->execpath != NULL) {
+			exec_path_off = oes_strtab_add(&st, &ep->ep_msg,
+			    imgp->execpath);
+			ep->ep_msg.em_event_data.exec.executable.ef_path_off =
+			    exec_path_off;
+			ep->ep_msg.em_process.ep_path_off = exec_path_off;
+			ep->ep_msg.em_event_data.exec.target.ep_path_off =
+			    exec_path_off;
+		}
 
-		/* Calculate argv length (from begin_argv to begin_envv) */
-		argv_len = 0;
-		envp_len = 0;
-		if (args->begin_argv != NULL) {
-			envv_start = exec_args_get_begin_envv(args);
-			if (envv_start != NULL && envv_start > args->begin_argv) {
-				argv_len = envv_start - args->begin_argv;
-			} else if (args->endp != NULL &&
-			    args->endp > args->begin_argv) {
-				argv_len = args->endp - args->begin_argv;
-				envv_start = NULL;
+		if (imgp != NULL && imgp->args != NULL) {
+			struct image_args *args = imgp->args;
+			oes_event_exec_t *exec = &ep->ep_msg.em_event_data.exec;
+			size_t argv_len, envp_len, total_len;
+			size_t copy_argv, copy_envp;
+			char *envv_start;
+
+			exec->argc = args->argc;
+			exec->envc = args->envc;
+			exec->argv_off = 0;
+			exec->argv_len = 0;
+			exec->envp_off = 0;
+			exec->envp_len = 0;
+			exec->flags = 0;
+
+			/* Calculate argv length (from begin_argv to begin_envv) */
+			argv_len = 0;
+			envp_len = 0;
+			envv_start = NULL;
+			if (args->begin_argv != NULL) {
+				envv_start = exec_args_get_begin_envv(args);
+				if (envv_start != NULL &&
+				    envv_start > args->begin_argv) {
+					argv_len = envv_start - args->begin_argv;
+				} else if (args->endp != NULL &&
+				    args->endp > args->begin_argv) {
+					argv_len = args->endp - args->begin_argv;
+					envv_start = NULL;
+				}
+
+				/* Calculate envp length */
+				if (envv_start != NULL && args->endp != NULL &&
+				    args->endp > envv_start) {
+					envp_len = args->endp - envv_start;
+				}
 			}
 
-			/* Calculate envp length */
-			if (envv_start != NULL && args->endp != NULL &&
-			    args->endp > envv_start) {
-				envp_len = args->endp - envv_start;
+			/* Copy argv (truncate if necessary) */
+			copy_argv = argv_len;
+			if (copy_argv > OES_EXEC_ARGS_MAX) {
+				copy_argv = OES_EXEC_ARGS_MAX;
+				exec->flags |= EE_FLAG_ARGV_TRUNCATED;
+			}
+			if (copy_argv > 0 && args->begin_argv != NULL) {
+				exec->argv_off = oes_strtab_add_buf(&st,
+				    &ep->ep_msg, args->begin_argv, copy_argv);
+				exec->argv_len = copy_argv;
+			}
+
+			/* Copy envp if there's room */
+			total_len = copy_argv + envp_len;
+			if (total_len > OES_EXEC_ARGS_MAX) {
+				copy_envp = OES_EXEC_ARGS_MAX - copy_argv;
+				if (envp_len > 0)
+					exec->flags |= EE_FLAG_ENVP_TRUNCATED;
+			} else {
+				copy_envp = envp_len;
+			}
+			if (copy_envp > 0 && envv_start != NULL) {
+				exec->envp_off = oes_strtab_add_buf(&st,
+				    &ep->ep_msg, envv_start, copy_envp);
+				exec->envp_len = copy_envp;
 			}
 		}
 
-		/* Copy argv (truncate if necessary) */
-		copy_argv = argv_len;
-		if (copy_argv > OES_EXEC_ARGS_MAX) {
-			copy_argv = OES_EXEC_ARGS_MAX;
-			exec->flags |= EE_FLAG_ARGV_TRUNCATED;
-		}
-		if (copy_argv > 0 && args->begin_argv != NULL) {
-			bcopy(args->begin_argv, exec->args, copy_argv);
-			exec->argv_len = copy_argv;
-			offset = copy_argv;
-		}
-
-		/* Copy envp if there's room */
-		total_len = offset + envp_len;
-		if (total_len > OES_EXEC_ARGS_MAX) {
-			copy_envp = OES_EXEC_ARGS_MAX - offset;
-			if (envp_len > 0)
-				exec->flags |= EE_FLAG_ENVP_TRUNCATED;
-		} else {
-			copy_envp = envp_len;
-		}
-		if (copy_envp > 0 && envv_start != NULL) {
-			bcopy(envv_start, exec->args + offset, copy_envp);
-			exec->envp_len = copy_envp;
-		}
+		ep->ep_msg.em_size = OES_MSG_ALIGNED(st.st_off);
 	}
 
 	error = oes_dispatch_event(ep, p, cred, notify_event);
@@ -2282,7 +2477,6 @@ oes_mac_vnode_check_exec(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, struct image_params *imgp,
     struct label *execlabel)
 {
-
 	return (oes_generate_exec_event(cred, vp, imgp));
 }
 
@@ -2293,7 +2487,6 @@ static int
 oes_mac_vnode_check_open(struct ucred *cred, struct vnode *vp,
     struct label *vplabel, accmode_t accmode)
 {
-
 	struct oes_vnode_event_info info = OES_VNODE_INFO_INIT(cred);
 
 	info.vp = vp;
@@ -2309,7 +2502,6 @@ static int
 oes_mac_vnode_check_create(struct ucred *cred, struct vnode *dvp,
     struct label *dvplabel, struct componentname *cnp, struct vattr *vap)
 {
-
 	struct oes_vnode_event_info info = OES_VNODE_INFO_INIT(cred);
 
 	info.dvp = dvp;
@@ -2327,7 +2519,6 @@ oes_mac_vnode_check_unlink(struct ucred *cred, struct vnode *dvp,
     struct label *dvplabel, struct vnode *vp, struct label *vplabel,
     struct componentname *cnp)
 {
-
 	struct oes_vnode_event_info info = OES_VNODE_INFO_INIT(cred);
 
 	info.vp = vp;
@@ -2345,7 +2536,6 @@ oes_mac_vnode_check_rename_from(struct ucred *cred, struct vnode *dvp,
     struct label *dvplabel, struct vnode *vp, struct label *vplabel,
     struct componentname *cnp)
 {
-
 	struct oes_vnode_event_info info = OES_VNODE_INFO_INIT(cred);
 
 	info.vp = vp;
@@ -2393,7 +2583,6 @@ oes_mac_vnode_check_link(struct ucred *cred, struct vnode *dvp,
     struct label *dvplabel, struct vnode *vp, struct label *vplabel,
     struct componentname *cnp)
 {
-
 	struct oes_vnode_event_info info = OES_VNODE_INFO_INIT(cred);
 
 	info.vp = vp;
@@ -2785,7 +2974,6 @@ static int
 oes_mac_kld_check_load(struct ucred *cred, struct vnode *vp,
     struct label *vplabel)
 {
-
 	struct oes_vnode_event_info info = OES_VNODE_INFO_INIT(cred);
 
 	info.vp = vp;
@@ -2810,15 +2998,22 @@ oes_mac_proc_check_signal(struct ucred *cred, struct proc *p, int signum)
 		return (0);
 
 	{
+		struct oes_strtab st;
 		bool owned = mtx_owned(&p->p_mtx);
+
+		oes_strtab_init(&st);
+		st.st_off = ep->ep_msg.em_size;
 
 		if (!owned)
 			PROC_LOCK(p);
-		oes_fill_process(&ep->ep_msg.em_event_data.signal.target, p, NULL);
+		oes_fill_process(&ep->ep_msg.em_event_data.signal.target, p, NULL,
+		    &st, &ep->ep_msg);
 		if (!owned)
 			PROC_UNLOCK(p);
+
+		ep->ep_msg.em_event_data.signal.signum = signum;
+		ep->ep_msg.em_size = OES_MSG_ALIGNED(st.st_off);
 	}
-	ep->ep_msg.em_event_data.signal.signum = signum;
 
 	oes_deliver_notify_nosleep(ep, curp);
 	oes_pending_rele(ep);
@@ -2890,7 +3085,15 @@ oes_mac_proc_check_debug(struct ucred *cred, struct proc *p)
 		return (0);
 
 	/* p is already locked by caller (p_candebug) */
-	oes_fill_process(&ep->ep_msg.em_event_data.ptrace.target, p, NULL);
+	{
+		struct oes_strtab st;
+
+		oes_strtab_init(&st);
+		st.st_off = ep->ep_msg.em_size;
+		oes_fill_process(&ep->ep_msg.em_event_data.ptrace.target, p, NULL,
+		    &st, &ep->ep_msg);
+		ep->ep_msg.em_size = OES_MSG_ALIGNED(st.st_off);
+	}
 
 	oes_deliver_notify_nosleep(ep, curp);
 	oes_pending_rele(ep);
