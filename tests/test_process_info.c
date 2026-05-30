@@ -4,6 +4,7 @@
  * Tests that process events contain correct:
  * - ABI information (FreeBSD vs Linux binary detection)
  * - Parent process info (ppid, pcomm)
+ * - Process metadata flags remain clear when no path is present
  */
 #include <sys/ioctl.h>
 #include <sys/poll.h>
@@ -145,6 +146,7 @@ main(void)
 	    proc->ep_abi, EP_ABI_FREEBSD, EP_ABI_LINUX);
 	printf("  Flags: 0x%x (EP_FLAG_LINUX=0x%x)\n",
 	    proc->ep_flags, EP_FLAG_LINUX);
+	printf("  Meta flags: 0x%x\n", proc->ep_meta_flags);
 
 	/* Test 1: Parent PID should be us */
 	if (proc->ep_ppid != mypid) {
@@ -179,6 +181,15 @@ main(void)
 		errors++;
 	} else {
 		printf("  PASS: EP_FLAG_LINUX not set\n");
+	}
+
+	/* Test 5: Fork child has no executable path metadata */
+	if (proc->ep_meta_flags != 0) {
+		fprintf(stderr, "  FAIL: ep_meta_flags=0x%x, expected 0\n",
+		    proc->ep_meta_flags);
+		errors++;
+	} else {
+		printf("  PASS: process metadata flags clear\n");
 	}
 
 	if (errors > 0) {

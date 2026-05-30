@@ -909,15 +909,6 @@ int vendor_main(int oes_fd) {  /* fd passed from system daemon */
 - [ ] Performance tuning
 - [ ] Security audit
 
-## Future Work / TODOs
-
-- [ ] Expand event catalog beyond current vnode/process coverage (network,
-      IPC, device, audit, etc.)
-- [ ] Multi-client AUTH delivery and arbitration (fan-out, priority, combine
-      decisions)
-- [ ] Fuller suppression/mute semantics (process tree, file tokens, per-event
-      filters, path globbing, global/namespace mutes)
-
 ## Open Questions
 
 1. **Event versioning**: How to handle structure changes across versions?

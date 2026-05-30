@@ -17,45 +17,6 @@
 #include "test_common.h"
 
 static int
-wait_for_event(int fd, pid_t pid, oes_event_type_t event, int timeout_ms,
-    oes_message_t *out)
-{
-	test_msg_buf _buf;
-	oes_message_t *msg = &_buf.msg;
-	struct timespec start;
-
-	clock_gettime(CLOCK_MONOTONIC, &start);
-
-	for (;;) {
-		struct timespec now;
-		long elapsed_ms;
-		int remaining;
-
-		clock_gettime(CLOCK_MONOTONIC, &now);
-		elapsed_ms = (now.tv_sec - start.tv_sec) * 1000L +
-		    (now.tv_nsec - start.tv_nsec) / 1000000L;
-		if (elapsed_ms >= timeout_ms)
-			break;
-
-		remaining = timeout_ms - (int)elapsed_ms;
-		if (remaining > 100)
-			remaining = 100;
-
-		if (test_wait_event(fd, msg, remaining) != 0)
-			continue;
-		if (msg->em_process.ep_pid != pid)
-			continue;
-		if (msg->em_event != event)
-			continue;
-		if (out != NULL)
-			*out = *msg;
-		return (0);
-	}
-
-	return (ETIMEDOUT);
-}
-
-static int
 wait_for_any_event(int fd, pid_t pid, int timeout_ms)
 {
 	test_msg_buf _buf;
@@ -182,7 +143,7 @@ main(void)
 	/* Child open -> capture token, then mute child. */
 	cmd = 'o';
 	(void)write(pipefd[1], &cmd, 1);
-	ret = wait_for_event(fd, child, OES_EVENT_NOTIFY_OPEN, 2000, msg);
+	ret = test_wait_event_pid(fd, child, OES_EVENT_NOTIFY_OPEN, 2000, msg);
 	if (ret != 0) {
 		fprintf(stderr, "expected child open event\n");
 		goto fail;
@@ -198,7 +159,7 @@ main(void)
 	/* Muted child should not generate events. */
 	cmd = 'o';
 	(void)write(pipefd[1], &cmd, 1);
-	ret = wait_for_event(fd, child, OES_EVENT_NOTIFY_OPEN, 500, NULL);
+	ret = test_wait_event_pid(fd, child, OES_EVENT_NOTIFY_OPEN, 500, NULL);
 	if (ret == 0) {
 		fprintf(stderr, "mute failed (event still delivered)\n");
 		goto fail;
@@ -215,7 +176,7 @@ main(void)
 
 	cmd = 'o';
 	(void)write(pipefd[1], &cmd, 1);
-	ret = wait_for_event(fd, child, OES_EVENT_NOTIFY_OPEN, 2000, NULL);
+	ret = test_wait_event_pid(fd, child, OES_EVENT_NOTIFY_OPEN, 2000, NULL);
 	if (ret != 0) {
 		fprintf(stderr, "mute inversion failed (missing event)\n");
 		goto fail;

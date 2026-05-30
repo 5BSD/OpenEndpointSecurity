@@ -5,75 +5,16 @@
  * OES_IOC_MUTE_PATH_EVENTS, and OES_IOC_UNMUTE_PATH_EVENTS.
  */
 #include <sys/ioctl.h>
-#include <sys/poll.h>
 #include <sys/wait.h>
 
-#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <unistd.h>
 
 #include <security/oes/oes.h>
 #include "test_common.h"
-
-static int
-respond_allow(int fd, const oes_message_t *msg)
-{
-	oes_response_t resp;
-
-	if (msg->em_action != OES_ACTION_AUTH)
-		return (0);
-
-	memset(&resp, 0, sizeof(resp));
-	resp.er_id = msg->em_id;
-	resp.er_result = OES_AUTH_ALLOW;
-	return (write(fd, &resp, sizeof(resp)) == sizeof(resp) ? 0 : -1);
-}
-
-static int
-wait_for_event(int fd, pid_t pid, oes_event_type_t event, int timeout_ms,
-    oes_message_t *out)
-{
-	test_msg_buf _buf;
-	oes_message_t *msg = &_buf.msg;
-	struct timespec start;
-
-	clock_gettime(CLOCK_MONOTONIC, &start);
-
-	for (;;) {
-		struct timespec now;
-		long elapsed_ms;
-		int remaining;
-
-		clock_gettime(CLOCK_MONOTONIC, &now);
-		elapsed_ms = (now.tv_sec - start.tv_sec) * 1000L +
-		    (now.tv_nsec - start.tv_nsec) / 1000000L;
-		if (elapsed_ms >= timeout_ms)
-			break;
-
-		remaining = timeout_ms - (int)elapsed_ms;
-		if (remaining > 100)
-			remaining = 100;
-
-		if (test_wait_event(fd, msg, remaining) != 0)
-			continue;
-
-		(void)respond_allow(fd, msg);
-
-		if (msg->em_process.ep_pid != pid)
-			continue;
-		if (msg->em_event != event)
-			continue;
-		if (out != NULL)
-			*out = *msg;
-		return (0);
-	}
-
-	return (ETIMEDOUT);
-}
 
 int
 main(void)
@@ -163,7 +104,8 @@ main(void)
 	/* Trigger an OPEN event - should be muted */
 	(void)open("/etc/passwd", O_RDONLY);
 
-	ret = wait_for_event(fd, getpid(), OES_EVENT_NOTIFY_OPEN, 500, NULL);
+	ret = test_wait_event_pid(fd, getpid(), OES_EVENT_NOTIFY_OPEN, 500,
+	    NULL);
 	if (ret == 0) {
 		fprintf(stderr, "FAIL: self-muted OPEN event still delivered\n");
 		close(fd);
@@ -174,7 +116,8 @@ main(void)
 	/* Trigger an ACCESS event - should NOT be muted */
 	(void)access("/etc/passwd", R_OK);
 
-	ret = wait_for_event(fd, getpid(), OES_EVENT_NOTIFY_ACCESS, 1000, NULL);
+	ret = test_wait_event_pid(fd, getpid(), OES_EVENT_NOTIFY_ACCESS, 1000,
+	    NULL);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: ACCESS event not delivered (should not be muted)\n");
 		close(fd);
@@ -192,7 +135,8 @@ main(void)
 	/* Trigger OPEN again - should now be delivered */
 	(void)open("/etc/hosts", O_RDONLY);
 
-	ret = wait_for_event(fd, getpid(), OES_EVENT_NOTIFY_OPEN, 1000, NULL);
+	ret = test_wait_event_pid(fd, getpid(), OES_EVENT_NOTIFY_OPEN, 1000,
+	    NULL);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: OPEN event not delivered after unmute\n");
 		close(fd);
@@ -250,7 +194,7 @@ main(void)
 	(void)write(pipefd[1], &cmd, 1);
 	usleep(100000);
 
-	ret = wait_for_event(fd, child, OES_EVENT_NOTIFY_OPEN, 500, NULL);
+	ret = test_wait_event_pid(fd, child, OES_EVENT_NOTIFY_OPEN, 500, NULL);
 	if (ret == 0) {
 		fprintf(stderr, "FAIL: path-muted OPEN still delivered\n");
 		goto fail;
@@ -261,7 +205,7 @@ main(void)
 	cmd = 'h';
 	(void)write(pipefd[1], &cmd, 1);
 
-	ret = wait_for_event(fd, child, OES_EVENT_NOTIFY_OPEN, 1000, NULL);
+	ret = test_wait_event_pid(fd, child, OES_EVENT_NOTIFY_OPEN, 1000, NULL);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: non-muted path OPEN not delivered\n");
 		goto fail;
@@ -278,7 +222,7 @@ main(void)
 	cmd = 'p';
 	(void)write(pipefd[1], &cmd, 1);
 
-	ret = wait_for_event(fd, child, OES_EVENT_NOTIFY_OPEN, 1000, NULL);
+	ret = test_wait_event_pid(fd, child, OES_EVENT_NOTIFY_OPEN, 1000, NULL);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: OPEN for /etc/passwd not delivered after unmute\n");
 		goto fail;

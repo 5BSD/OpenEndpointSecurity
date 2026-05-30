@@ -40,6 +40,16 @@ struct oes_client {
 	size_t		ec_bufoff;	/* Current read offset into ec_buf */
 };
 
+static int
+oes_client_get_fd(oes_client_t *client)
+{
+	if (client == NULL) {
+		errno = EINVAL;
+		return (-1);
+	}
+	return (client->ec_fd);
+}
+
 /*
  * oes_client_create - Create a new OES client
  */
@@ -113,7 +123,7 @@ int
 oes_client_fd(oes_client_t *client)
 {
 
-	return (client->ec_fd);
+	return (oes_client_get_fd(client));
 }
 
 /*
@@ -124,13 +134,18 @@ oes_set_mode(oes_client_t *client, uint32_t mode,
     uint32_t timeout_ms, uint32_t queue_size)
 {
 	struct oes_mode_args args;
+	int fd;
+
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
 
 	memset(&args, 0, sizeof(args));
 	args.ema_mode = mode;
 	args.ema_timeout_ms = timeout_ms;
 	args.ema_queue_size = queue_size;
 
-	if (ioctl(client->ec_fd, OES_IOC_SET_MODE, &args) < 0)
+	if (ioctl(fd, OES_IOC_SET_MODE, &args) < 0)
 		return (-1);
 
 	client->ec_mode = mode;
@@ -145,9 +160,14 @@ oes_get_mode(oes_client_t *client, uint32_t *mode,
     uint32_t *timeout_ms, uint32_t *queue_size)
 {
 	struct oes_mode_args args;
+	int fd;
+
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
 
 	memset(&args, 0, sizeof(args));
-	if (ioctl(client->ec_fd, OES_IOC_GET_MODE, &args) < 0)
+	if (ioctl(fd, OES_IOC_GET_MODE, &args) < 0)
 		return (-1);
 
 	if (mode != NULL)
@@ -167,11 +187,16 @@ int
 oes_set_timeout(oes_client_t *client, uint32_t timeout_ms)
 {
 	struct oes_timeout_args args;
+	int fd;
+
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
 
 	memset(&args, 0, sizeof(args));
 	args.eta_timeout_ms = timeout_ms;
 
-	return (ioctl(client->ec_fd, OES_IOC_SET_TIMEOUT, &args));
+	return (ioctl(fd, OES_IOC_SET_TIMEOUT, &args));
 }
 
 /*
@@ -181,9 +206,14 @@ int
 oes_get_timeout(oes_client_t *client, uint32_t *timeout_ms)
 {
 	struct oes_timeout_args args;
+	int fd;
+
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
 
 	memset(&args, 0, sizeof(args));
-	if (ioctl(client->ec_fd, OES_IOC_GET_TIMEOUT, &args) < 0)
+	if (ioctl(fd, OES_IOC_GET_TIMEOUT, &args) < 0)
 		return (-1);
 
 	if (timeout_ms != NULL)
@@ -199,11 +229,16 @@ int
 oes_set_timeout_action(oes_client_t *client, oes_auth_result_t action)
 {
 	struct oes_timeout_action_args args;
+	int fd;
+
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
 
 	memset(&args, 0, sizeof(args));
 	args.eta_action = action;
 
-	if (ioctl(client->ec_fd, OES_IOC_SET_TIMEOUT_ACTION, &args) < 0)
+	if (ioctl(fd, OES_IOC_SET_TIMEOUT_ACTION, &args) < 0)
 		return (-1);
 
 	return (0);
@@ -216,9 +251,14 @@ int
 oes_get_timeout_action(oes_client_t *client, oes_auth_result_t *action)
 {
 	struct oes_timeout_action_args args;
+	int fd;
+
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
 
 	memset(&args, 0, sizeof(args));
-	if (ioctl(client->ec_fd, OES_IOC_GET_TIMEOUT_ACTION, &args) < 0)
+	if (ioctl(fd, OES_IOC_GET_TIMEOUT_ACTION, &args) < 0)
 		return (-1);
 
 	if (action != NULL)
@@ -233,8 +273,12 @@ oes_get_timeout_action(oes_client_t *client, oes_auth_result_t *action)
 int
 oes_cache_add(oes_client_t *client, const oes_cache_entry_t *entry)
 {
+	int fd;
 
-	return (ioctl(client->ec_fd, OES_IOC_CACHE_ADD, entry));
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
+	return (ioctl(fd, OES_IOC_CACHE_ADD, entry));
 }
 
 /*
@@ -243,8 +287,12 @@ oes_cache_add(oes_client_t *client, const oes_cache_entry_t *entry)
 int
 oes_cache_remove(oes_client_t *client, const oes_cache_key_t *key)
 {
+	int fd;
 
-	return (ioctl(client->ec_fd, OES_IOC_CACHE_REMOVE, key));
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
+	return (ioctl(fd, OES_IOC_CACHE_REMOVE, key));
 }
 
 /*
@@ -253,8 +301,12 @@ oes_cache_remove(oes_client_t *client, const oes_cache_key_t *key)
 int
 oes_cache_clear(oes_client_t *client)
 {
+	int fd;
 
-	return (ioctl(client->ec_fd, OES_IOC_CACHE_CLEAR, NULL));
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
+	return (ioctl(fd, OES_IOC_CACHE_CLEAR, NULL));
 }
 
 /*
@@ -265,13 +317,18 @@ oes_subscribe(oes_client_t *client, const oes_event_type_t *events,
     size_t count, uint32_t flags)
 {
 	struct oes_subscribe_args args;
+	int fd;
+
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
 
 	memset(&args, 0, sizeof(args));
 	args.esa_events = events;
 	args.esa_count = count;
 	args.esa_flags = flags;
 
-	return (ioctl(client->ec_fd, OES_IOC_SUBSCRIBE, &args));
+	return (ioctl(fd, OES_IOC_SUBSCRIBE, &args));
 }
 
 /*
@@ -285,18 +342,18 @@ oes_subscribe_bitmap(oes_client_t *client, uint64_t auth_bitmap,
     uint64_t notify_bitmap, uint32_t flags)
 {
 	struct oes_subscribe_bitmap_args args;
+	int fd;
 
-	if (client == NULL) {
-		errno = EINVAL;
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
 		return (-1);
-	}
 
 	memset(&args, 0, sizeof(args));
 	args.esba_auth = auth_bitmap;
 	args.esba_notify = notify_bitmap;
 	args.esba_flags = flags;
 
-	return (ioctl(client->ec_fd, OES_IOC_SUBSCRIBE_BITMAP, &args));
+	return (ioctl(fd, OES_IOC_SUBSCRIBE_BITMAP, &args));
 }
 
 /*
@@ -309,8 +366,12 @@ oes_subscribe_bitmap_ex(oes_client_t *client, const uint64_t auth_bitmap[2],
     const uint64_t notify_bitmap[2], uint32_t flags)
 {
 	struct oes_subscribe_bitmap_ex_args args;
+	int fd;
 
-	if (client == NULL) {
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
+	if (auth_bitmap == NULL || notify_bitmap == NULL) {
 		errno = EINVAL;
 		return (-1);
 	}
@@ -322,7 +383,7 @@ oes_subscribe_bitmap_ex(oes_client_t *client, const uint64_t auth_bitmap[2],
 	args.esba_notify[1] = notify_bitmap[1];
 	args.esba_flags = flags;
 
-	return (ioctl(client->ec_fd, OES_IOC_SUBSCRIBE_BITMAP_EX, &args));
+	return (ioctl(fd, OES_IOC_SUBSCRIBE_BITMAP_EX, &args));
 }
 
 /*
@@ -333,16 +394,12 @@ oes_subscribe_bitmap_ex(oes_client_t *client, const uint64_t auth_bitmap[2],
 int
 oes_subscribe_all(oes_client_t *client, bool auth, bool notify)
 {
-	/* AUTH bitmap: bits 1-34 (EXEC..RELABEL) + 41-42 (SWAPON, SWAPOFF) */
-	const uint64_t all_auth[2] = { 0x6007FFFFFFFEULL, 0 };
-
-	/*
-	 * NOTIFY bitmap: bits 1-4,6-9,11,13-66
-	 * (gaps at bits 0,5,10,12 - no events defined there)
-	 * Low 64 bits: 0xFFFFFFFFFFFFEBDEULL
-	 * High bits: 64,65,66 -> 0x7
-	 */
-	const uint64_t all_notify[2] = { 0xFFFFFFFFFFFFEBDEULL, 0x7ULL };
+	const uint64_t all_auth[2] = {
+		OES_AUTH_EVENT_MASK_LO, OES_AUTH_EVENT_MASK_HI
+	};
+	const uint64_t all_notify[2] = {
+		OES_NOTIFY_EVENT_MASK_LO, OES_NOTIFY_EVENT_MASK_HI
+	};
 
 	return (oes_subscribe_bitmap_ex(client,
 	    auth ? all_auth : (const uint64_t[2]){0, 0},
@@ -357,11 +414,16 @@ int
 oes_mute_self(oes_client_t *client)
 {
 	struct oes_mute_args args;
+	int fd;
+
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
 
 	memset(&args, 0, sizeof(args));
 	args.emu_flags = OES_MUTE_SELF;
 
-	return (ioctl(client->ec_fd, OES_IOC_MUTE_PROCESS, &args));
+	return (ioctl(fd, OES_IOC_MUTE_PROCESS, &args));
 }
 
 /*
@@ -371,12 +433,21 @@ int
 oes_mute_process(oes_client_t *client, const oes_proc_token_t *token)
 {
 	struct oes_mute_args args;
+	int fd;
+
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
+	if (token == NULL) {
+		errno = EINVAL;
+		return (-1);
+	}
 
 	memset(&args, 0, sizeof(args));
 	args.emu_token = *token;
 	args.emu_flags = 0;
 
-	return (ioctl(client->ec_fd, OES_IOC_MUTE_PROCESS, &args));
+	return (ioctl(fd, OES_IOC_MUTE_PROCESS, &args));
 }
 
 /*
@@ -386,11 +457,20 @@ int
 oes_unmute_process(oes_client_t *client, const oes_proc_token_t *token)
 {
 	struct oes_mute_args args;
+	int fd;
+
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
+	if (token == NULL) {
+		errno = EINVAL;
+		return (-1);
+	}
 
 	memset(&args, 0, sizeof(args));
 	args.emu_token = *token;
 
-	return (ioctl(client->ec_fd, OES_IOC_UNMUTE_PROCESS, &args));
+	return (ioctl(fd, OES_IOC_UNMUTE_PROCESS, &args));
 }
 
 /*
@@ -400,6 +480,11 @@ int
 oes_mute_path(oes_client_t *client, const char *path, uint32_t type)
 {
 	struct oes_mute_path_args args;
+	int fd;
+
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
 
 	memset(&args, 0, sizeof(args));
 	if (path != NULL)
@@ -407,7 +492,7 @@ oes_mute_path(oes_client_t *client, const char *path, uint32_t type)
 	args.emp_type = type;
 	args.emp_flags = 0;
 
-	return (ioctl(client->ec_fd, OES_IOC_MUTE_PATH, &args));
+	return (ioctl(fd, OES_IOC_MUTE_PATH, &args));
 }
 
 /*
@@ -417,6 +502,11 @@ int
 oes_unmute_path(oes_client_t *client, const char *path, uint32_t type)
 {
 	struct oes_mute_path_args args;
+	int fd;
+
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
 
 	memset(&args, 0, sizeof(args));
 	if (path != NULL)
@@ -424,7 +514,7 @@ oes_unmute_path(oes_client_t *client, const char *path, uint32_t type)
 	args.emp_type = type;
 	args.emp_flags = 0;
 
-	return (ioctl(client->ec_fd, OES_IOC_UNMUTE_PATH, &args));
+	return (ioctl(fd, OES_IOC_UNMUTE_PATH, &args));
 }
 
 /*
@@ -434,6 +524,11 @@ int
 oes_mute_target_path(oes_client_t *client, const char *path, uint32_t type)
 {
 	struct oes_mute_path_args args;
+	int fd;
+
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
 
 	memset(&args, 0, sizeof(args));
 	if (path != NULL)
@@ -441,7 +536,7 @@ oes_mute_target_path(oes_client_t *client, const char *path, uint32_t type)
 	args.emp_type = type;
 	args.emp_flags = OES_MUTE_PATH_FLAG_TARGET;
 
-	return (ioctl(client->ec_fd, OES_IOC_MUTE_PATH, &args));
+	return (ioctl(fd, OES_IOC_MUTE_PATH, &args));
 }
 
 /*
@@ -451,6 +546,11 @@ int
 oes_unmute_target_path(oes_client_t *client, const char *path, uint32_t type)
 {
 	struct oes_mute_path_args args;
+	int fd;
+
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
 
 	memset(&args, 0, sizeof(args));
 	if (path != NULL)
@@ -458,7 +558,7 @@ oes_unmute_target_path(oes_client_t *client, const char *path, uint32_t type)
 	args.emp_type = type;
 	args.emp_flags = OES_MUTE_PATH_FLAG_TARGET;
 
-	return (ioctl(client->ec_fd, OES_IOC_UNMUTE_PATH, &args));
+	return (ioctl(fd, OES_IOC_UNMUTE_PATH, &args));
 }
 
 /*
@@ -468,12 +568,17 @@ int
 oes_set_mute_invert(oes_client_t *client, uint32_t type, bool invert)
 {
 	struct oes_mute_invert_args args;
+	int fd;
+
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
 
 	memset(&args, 0, sizeof(args));
 	args.emi_type = type;
 	args.emi_invert = invert ? 1 : 0;
 
-	return (ioctl(client->ec_fd, OES_IOC_SET_MUTE_INVERT, &args));
+	return (ioctl(fd, OES_IOC_SET_MUTE_INVERT, &args));
 }
 
 /*
@@ -483,13 +588,19 @@ int
 oes_get_mute_invert(oes_client_t *client, uint32_t type, bool *invert)
 {
 	struct oes_mute_invert_args args;
+	int fd;
 
-	if (invert == NULL)
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
 		return (-1);
+	if (invert == NULL) {
+		errno = EINVAL;
+		return (-1);
+	}
 
 	memset(&args, 0, sizeof(args));
 	args.emi_type = type;
-	if (ioctl(client->ec_fd, OES_IOC_GET_MUTE_INVERT, &args) < 0)
+	if (ioctl(fd, OES_IOC_GET_MUTE_INVERT, &args) < 0)
 		return (-1);
 
 	*invert = (args.emi_invert != 0);
@@ -565,6 +676,19 @@ oes_read_event(oes_client_t *client, const oes_message_t **msgp,
 	if (client->ec_bufoff < client->ec_buflen) {
 		msg = (const oes_message_t *)(void *)
 		    (client->ec_buf._raw + client->ec_bufoff);
+		if (msg->em_size < sizeof(oes_message_t) ||
+		    msg->em_size > client->ec_buflen - client->ec_bufoff) {
+			client->ec_buflen = 0;
+			client->ec_bufoff = 0;
+			errno = EIO;
+			return (-1);
+		}
+		if (!oes_message_is_compatible(msg)) {
+			client->ec_buflen = 0;
+			client->ec_bufoff = 0;
+			errno = EPROTO;
+			return (-1);
+		}
 		client->ec_bufoff += msg->em_size;
 	}
 
@@ -589,6 +713,12 @@ oes_read_event(oes_client_t *client, const oes_message_t **msgp,
 		errno = EIO;
 		return (-1);
 	}
+	if (!oes_message_is_compatible(msg)) {
+		client->ec_buflen = 0;
+		client->ec_bufoff = 0;
+		errno = EPROTO;
+		return (-1);
+	}
 
 	*msgp = msg;
 	return (0);
@@ -602,12 +732,17 @@ oes_respond(oes_client_t *client, uint64_t msg_id, oes_auth_result_t result)
 {
 	oes_response_t resp;
 	ssize_t n;
+	int fd;
+
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
 
 	memset(&resp, 0, sizeof(resp));
 	resp.er_id = msg_id;
 	resp.er_result = result;
 
-	n = write(client->ec_fd, &resp, sizeof(resp));
+	n = write(fd, &resp, sizeof(resp));
 	if (n < 0)
 		return (-1);
 
@@ -627,6 +762,11 @@ oes_dispatch(oes_client_t *client, oes_handler_t handler, void *context)
 {
 	const oes_message_t *msg;
 
+	if (handler == NULL) {
+		errno = EINVAL;
+		return (-1);
+	}
+
 	for (;;) {
 		if (oes_read_event(client, &msg, true) < 0)
 			return (-1);
@@ -642,8 +782,12 @@ oes_dispatch(oes_client_t *client, oes_handler_t handler, void *context)
 int
 oes_get_stats(oes_client_t *client, struct oes_stats *stats)
 {
+	int fd;
 
-	return (ioctl(client->ec_fd, OES_IOC_GET_STATS, stats));
+	fd = oes_client_get_fd(client);
+	if (fd < 0)
+		return (-1);
+	return (ioctl(fd, OES_IOC_GET_STATS, stats));
 }
 
 /*
@@ -652,107 +796,12 @@ oes_get_stats(oes_client_t *client, struct oes_stats *stats)
 const char *
 oes_event_name(oes_event_type_t event)
 {
-
+#define OES_EVENT_NAME_CASE(name, value) case name: return #name + 10;
 	switch (event) {
-	case OES_EVENT_AUTH_EXEC:	return "AUTH_EXEC";
-	case OES_EVENT_AUTH_OPEN:	return "AUTH_OPEN";
-	case OES_EVENT_AUTH_CREATE:	return "AUTH_CREATE";
-	case OES_EVENT_AUTH_UNLINK:	return "AUTH_UNLINK";
-	case OES_EVENT_AUTH_RENAME:	return "AUTH_RENAME";
-	case OES_EVENT_AUTH_LINK:	return "AUTH_LINK";
-	case OES_EVENT_AUTH_MOUNT:	return "AUTH_MOUNT";
-	case OES_EVENT_AUTH_KLDLOAD:	return "AUTH_KLDLOAD";
-	case OES_EVENT_AUTH_MMAP:	return "AUTH_MMAP";
-	case OES_EVENT_AUTH_MPROTECT:	return "AUTH_MPROTECT";
-	case OES_EVENT_AUTH_CHDIR:	return "AUTH_CHDIR";
-	case OES_EVENT_AUTH_CHROOT:	return "AUTH_CHROOT";
-	case OES_EVENT_AUTH_SETEXTATTR:	return "AUTH_SETEXTATTR";
-	case OES_EVENT_AUTH_PTRACE:	return "AUTH_PTRACE";
-	case OES_EVENT_AUTH_ACCESS:	return "AUTH_ACCESS";
-	case OES_EVENT_AUTH_READ:	return "AUTH_READ";
-	case OES_EVENT_AUTH_WRITE:	return "AUTH_WRITE";
-	case OES_EVENT_AUTH_LOOKUP:	return "AUTH_LOOKUP";
-	case OES_EVENT_AUTH_SETMODE:	return "AUTH_SETMODE";
-	case OES_EVENT_AUTH_SETOWNER:	return "AUTH_SETOWNER";
-	case OES_EVENT_AUTH_SETFLAGS:	return "AUTH_SETFLAGS";
-	case OES_EVENT_AUTH_SETUTIMES:	return "AUTH_SETUTIMES";
-	case OES_EVENT_AUTH_STAT:	return "AUTH_STAT";
-	case OES_EVENT_AUTH_POLL:	return "AUTH_POLL";
-	case OES_EVENT_AUTH_REVOKE:	return "AUTH_REVOKE";
-	case OES_EVENT_AUTH_READDIR:	return "AUTH_READDIR";
-	case OES_EVENT_AUTH_READLINK:	return "AUTH_READLINK";
-	case OES_EVENT_AUTH_GETEXTATTR:	return "AUTH_GETEXTATTR";
-	case OES_EVENT_AUTH_DELETEEXTATTR:	return "AUTH_DELETEEXTATTR";
-	case OES_EVENT_AUTH_LISTEXTATTR:	return "AUTH_LISTEXTATTR";
-	case OES_EVENT_AUTH_GETACL:	return "AUTH_GETACL";
-	case OES_EVENT_AUTH_SETACL:	return "AUTH_SETACL";
-	case OES_EVENT_AUTH_DELETEACL:	return "AUTH_DELETEACL";
-	case OES_EVENT_AUTH_RELABEL:	return "AUTH_RELABEL";
-	case OES_EVENT_AUTH_SWAPON:	return "AUTH_SWAPON";
-	case OES_EVENT_AUTH_SWAPOFF:	return "AUTH_SWAPOFF";
-	case OES_EVENT_NOTIFY_EXEC:	return "NOTIFY_EXEC";
-	case OES_EVENT_NOTIFY_EXIT:	return "NOTIFY_EXIT";
-	case OES_EVENT_NOTIFY_FORK:	return "NOTIFY_FORK";
-	case OES_EVENT_NOTIFY_OPEN:	return "NOTIFY_OPEN";
-	case OES_EVENT_NOTIFY_CREATE:	return "NOTIFY_CREATE";
-	case OES_EVENT_NOTIFY_UNLINK:	return "NOTIFY_UNLINK";
-	case OES_EVENT_NOTIFY_RENAME:	return "NOTIFY_RENAME";
-	case OES_EVENT_NOTIFY_MOUNT:	return "NOTIFY_MOUNT";
-	case OES_EVENT_NOTIFY_KLDLOAD:	return "NOTIFY_KLDLOAD";
-	case OES_EVENT_NOTIFY_SIGNAL:	return "NOTIFY_SIGNAL";
-	case OES_EVENT_NOTIFY_PTRACE:	return "NOTIFY_PTRACE";
-	case OES_EVENT_NOTIFY_SETUID:	return "NOTIFY_SETUID";
-	case OES_EVENT_NOTIFY_SETGID:	return "NOTIFY_SETGID";
-	case OES_EVENT_NOTIFY_ACCESS:	return "NOTIFY_ACCESS";
-	case OES_EVENT_NOTIFY_READ:	return "NOTIFY_READ";
-	case OES_EVENT_NOTIFY_WRITE:	return "NOTIFY_WRITE";
-	case OES_EVENT_NOTIFY_LOOKUP:	return "NOTIFY_LOOKUP";
-	case OES_EVENT_NOTIFY_SETMODE:	return "NOTIFY_SETMODE";
-	case OES_EVENT_NOTIFY_SETOWNER:	return "NOTIFY_SETOWNER";
-	case OES_EVENT_NOTIFY_SETFLAGS:	return "NOTIFY_SETFLAGS";
-	case OES_EVENT_NOTIFY_SETUTIMES:	return "NOTIFY_SETUTIMES";
-	case OES_EVENT_NOTIFY_STAT:	return "NOTIFY_STAT";
-	case OES_EVENT_NOTIFY_POLL:	return "NOTIFY_POLL";
-	case OES_EVENT_NOTIFY_REVOKE:	return "NOTIFY_REVOKE";
-	case OES_EVENT_NOTIFY_READDIR:	return "NOTIFY_READDIR";
-	case OES_EVENT_NOTIFY_READLINK:	return "NOTIFY_READLINK";
-	case OES_EVENT_NOTIFY_SETEXTATTR:	return "NOTIFY_SETEXTATTR";
-	case OES_EVENT_NOTIFY_GETEXTATTR:	return "NOTIFY_GETEXTATTR";
-	case OES_EVENT_NOTIFY_DELETEEXTATTR:	return "NOTIFY_DELETEEXTATTR";
-	case OES_EVENT_NOTIFY_LISTEXTATTR:	return "NOTIFY_LISTEXTATTR";
-	case OES_EVENT_NOTIFY_GETACL:	return "NOTIFY_GETACL";
-	case OES_EVENT_NOTIFY_SETACL:	return "NOTIFY_SETACL";
-	case OES_EVENT_NOTIFY_DELETEACL:	return "NOTIFY_DELETEACL";
-	case OES_EVENT_NOTIFY_RELABEL:	return "NOTIFY_RELABEL";
-	case OES_EVENT_NOTIFY_SOCKET_CONNECT:	return "NOTIFY_SOCKET_CONNECT";
-	case OES_EVENT_NOTIFY_SOCKET_BIND:	return "NOTIFY_SOCKET_BIND";
-	case OES_EVENT_NOTIFY_SOCKET_LISTEN:	return "NOTIFY_SOCKET_LISTEN";
-	case OES_EVENT_NOTIFY_REBOOT:	return "NOTIFY_REBOOT";
-	case OES_EVENT_NOTIFY_SYSCTL:	return "NOTIFY_SYSCTL";
-	case OES_EVENT_NOTIFY_KENV:	return "NOTIFY_KENV";
-	case OES_EVENT_NOTIFY_SWAPON:	return "NOTIFY_SWAPON";
-	case OES_EVENT_NOTIFY_SWAPOFF:	return "NOTIFY_SWAPOFF";
-	case OES_EVENT_NOTIFY_UNMOUNT:	return "NOTIFY_UNMOUNT";
-	case OES_EVENT_NOTIFY_KLDUNLOAD:	return "NOTIFY_KLDUNLOAD";
-	case OES_EVENT_NOTIFY_LINK:	return "NOTIFY_LINK";
-	case OES_EVENT_NOTIFY_MMAP:	return "NOTIFY_MMAP";
-	case OES_EVENT_NOTIFY_MPROTECT:	return "NOTIFY_MPROTECT";
-	case OES_EVENT_NOTIFY_CHDIR:	return "NOTIFY_CHDIR";
-	case OES_EVENT_NOTIFY_CHROOT:	return "NOTIFY_CHROOT";
-	case OES_EVENT_NOTIFY_SOCKET_CREATE:	return "NOTIFY_SOCKET_CREATE";
-	case OES_EVENT_NOTIFY_SOCKET_ACCEPT:	return "NOTIFY_SOCKET_ACCEPT";
-	case OES_EVENT_NOTIFY_SOCKET_SEND:	return "NOTIFY_SOCKET_SEND";
-	case OES_EVENT_NOTIFY_SOCKET_RECEIVE:	return "NOTIFY_SOCKET_RECEIVE";
-	case OES_EVENT_NOTIFY_SOCKET_STAT:	return "NOTIFY_SOCKET_STAT";
-	case OES_EVENT_NOTIFY_SOCKET_POLL:	return "NOTIFY_SOCKET_POLL";
-	case OES_EVENT_NOTIFY_PIPE_READ:	return "NOTIFY_PIPE_READ";
-	case OES_EVENT_NOTIFY_PIPE_WRITE:	return "NOTIFY_PIPE_WRITE";
-	case OES_EVENT_NOTIFY_PIPE_STAT:	return "NOTIFY_PIPE_STAT";
-	case OES_EVENT_NOTIFY_PIPE_POLL:	return "NOTIFY_PIPE_POLL";
-	case OES_EVENT_NOTIFY_PIPE_IOCTL:	return "NOTIFY_PIPE_IOCTL";
-	case OES_EVENT_NOTIFY_MOUNT_STAT:	return "NOTIFY_MOUNT_STAT";
-	case OES_EVENT_NOTIFY_PRIV_CHECK:	return "NOTIFY_PRIV_CHECK";
-	case OES_EVENT_NOTIFY_PROC_SCHED:	return "NOTIFY_PROC_SCHED";
-	default:			return "UNKNOWN";
+	OES_AUTH_EVENT_LIST(OES_EVENT_NAME_CASE)
+	OES_NOTIFY_EVENT_LIST(OES_EVENT_NAME_CASE)
+	default:
+		return "UNKNOWN";
 	}
+#undef OES_EVENT_NAME_CASE
 }

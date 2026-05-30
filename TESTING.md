@@ -508,13 +508,6 @@ printf("received=%lu dropped=%lu timeouts=%lu\n",
 
 ---
 
-## Known Limitations / TODOs
-
-1. **PASSIVE mode coverage** - limited to exec-only conversion
-2. **AUTH coverage** - Expand AUTH-mode tests beyond exec/open
-
----
-
 ## Success Criteria
 
 - [ ] All Phase 1-5 tests pass

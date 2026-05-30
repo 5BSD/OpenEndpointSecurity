@@ -325,10 +325,10 @@ bool	oes_event_is_valid(oes_event_type_t ev);
  * NOTIFY: bits 1-4,6-9,11,13-63 (low), 64-66 (high)
  *   Gaps at bits 0, 5, 10, 12 (no NOTIFY events defined there)
  */
-#define OES_VALID_AUTH_LO	0x6007FFFFFFFEULL
-#define OES_VALID_AUTH_HI	0x0ULL
-#define OES_VALID_NOTIFY_LO	0xFFFFFFFFFFFFEBDEULL
-#define OES_VALID_NOTIFY_HI	0x7ULL
+#define OES_VALID_AUTH_LO	OES_AUTH_EVENT_MASK_LO
+#define OES_VALID_AUTH_HI	OES_AUTH_EVENT_MASK_HI
+#define OES_VALID_NOTIFY_LO	OES_NOTIFY_EVENT_MASK_LO
+#define OES_VALID_NOTIFY_HI	OES_NOTIFY_EVENT_MASK_HI
 
 /*
  * Map AUTH event type to its NOTIFY counterpart.

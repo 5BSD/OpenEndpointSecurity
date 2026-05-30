@@ -162,6 +162,7 @@ static int	oes_ioctl_get_muted_paths(struct oes_client *ec,
 		    struct oes_get_muted_paths_args *args);
 static int	oes_ioctl_unmute_all_processes(struct oes_client *ec);
 static int	oes_ioctl_unmute_all_paths(struct oes_client *ec, bool target);
+static int	oes_dev_prepare_unload(void);
 
 /* Forward declaration for cdevpriv dtor */
 static void	oes_client_dtor(void *data);
@@ -216,7 +217,8 @@ oes_open(struct cdev *dev __unused, int oflags __unused, int devtype __unused,
 	}
 
 	/* Enforce max clients */
-	if (oes_softc.sc_nclients >= oes_max_clients) {
+	if (oes_max_clients <= 0 ||
+	    oes_softc.sc_nclients >= (uint32_t)oes_max_clients) {
 		OES_UNLOCK();
 		return (EAGAIN);
 	}
@@ -1255,7 +1257,7 @@ oes_dev_uninit(void)
 	struct oes_client *ec, *ec_tmp;
 	int wait_count = 0;
 
-	if (!oes_softc.sc_active)
+	if (!oes_softc.sc_active && oes_softc.sc_cdev == NULL)
 		return;
 
 	oes_softc.sc_active = false;
@@ -1300,6 +1302,30 @@ oes_dev_uninit(void)
 	mtx_destroy(&oes_softc.sc_mtx);
 }
 
+static int
+oes_dev_prepare_unload(void)
+{
+	int error = 0;
+
+	OES_LOCK();
+	if (!oes_softc.sc_active) {
+		OES_UNLOCK();
+		return (0);
+	}
+	if (oes_softc.sc_nclients > 0) {
+		error = EBUSY;
+	} else {
+		/*
+		 * Reject opens before MAC unregister/device teardown starts.
+		 * With no clients, there is no cdevpriv state left to drain.
+		 */
+		oes_softc.sc_active = false;
+	}
+	OES_UNLOCK();
+
+	return (error);
+}
+
 /*
  * Module event handler
  */
@@ -1321,6 +1347,9 @@ oes_modevent(module_t mod, int type, void *data)
 		break;
 
 	case MOD_UNLOAD:
+		error = oes_dev_prepare_unload();
+		if (error != 0)
+			break;
 		oes_mac_uninit();
 		oes_dev_uninit();
 		break;

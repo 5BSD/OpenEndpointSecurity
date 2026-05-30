@@ -695,12 +695,11 @@ test_system_events(void)
 		return;
 	}
 
-	/* TODO: Add root-only tests when running as root */
 	SKIP("NOTIFY_REBOOT", "destructive test");
 	SKIP("NOTIFY_SWAPON", "needs swap device");
 	SKIP("NOTIFY_SWAPOFF", "needs swap device");
 	SKIP("NOTIFY_KLDLOAD", "needs safe module");
-	SKIP("NOTIFY_KENV", "not implemented");
+	SKIP("NOTIFY_KENV", "requires controlled kernel environment change");
 }
 
 static void
@@ -714,7 +713,6 @@ test_cred_events(void)
 		return;
 	}
 
-	/* TODO: setuid/setgid tests require root and proper test setup */
 	SKIP("NOTIFY_SETUID", "test needs privileged subprocess");
 	SKIP("NOTIFY_SETGID", "test needs privileged subprocess");
 }

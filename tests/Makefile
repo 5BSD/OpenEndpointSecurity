@@ -42,12 +42,14 @@ TESTS=		test_mute \
 		test_uid_gid_mute \
 		test_exec_args \
 		test_process_info \
+		test_path_metadata \
 		test_mode_timeout_api \
 		test_hook_coverage \
 		test_signal_events \
 		test_extattr_acl_events \
 		test_mmap_mprotect_events \
-		test_chdir_chroot_events
+		test_chdir_chroot_events \
+		test_event_abi
 
 .PHONY: all clean run
 

@@ -90,19 +90,31 @@ struct oes_client *
 oes_client_alloc(void)
 {
 	struct oes_client *ec;
+	int queue_max;
+	int timeout_ms;
 
 	ec = malloc(sizeof(*ec), M_OES, M_WAITOK | M_ZERO);
 
 	mtx_init(&ec->ec_mtx, "oes_client", NULL, MTX_DEF);
 	ec->ec_owner_pid = -1;
 	ec->ec_mode = OES_MODE_NOTIFY;
-	ec->ec_timeout_ms = oes_default_timeout;
+	timeout_ms = oes_default_timeout;
+	if (timeout_ms < OES_MIN_TIMEOUT_MS)
+		timeout_ms = OES_MIN_TIMEOUT_MS;
+	if (timeout_ms > OES_MAX_TIMEOUT_MS)
+		timeout_ms = OES_MAX_TIMEOUT_MS;
+	ec->ec_timeout_ms = (uint32_t)timeout_ms;
 	if (oes_default_action == OES_AUTH_ALLOW ||
 	    oes_default_action == OES_AUTH_DENY)
 		ec->ec_timeout_action = oes_default_action;
 	else
 		ec->ec_timeout_action = OES_AUTH_ALLOW;
-	ec->ec_queue_max = oes_default_queue_size;
+	queue_max = oes_default_queue_size;
+	if (queue_max <= 0)
+		queue_max = OES_DEFAULT_QUEUE_SIZE;
+	if (queue_max > 65536)
+		queue_max = 65536;
+	ec->ec_queue_max = (uint32_t)queue_max;
 
 	TAILQ_INIT(&ec->ec_pending);
 	TAILQ_INIT(&ec->ec_delivered);
@@ -554,6 +566,45 @@ oes_event_in_bitmap(oes_event_type_t event, const uint64_t bitmap[4])
 	return ((bitmap[base + word] & (1ULL << shift)) != 0);
 }
 
+static bool
+oes_mute_entry_matches_event(const struct oes_mute_entry *em,
+    oes_event_type_t event)
+{
+
+	if (em->em_events[0] == 0 && em->em_events[1] == 0 &&
+	    em->em_events[2] == 0 && em->em_events[3] == 0)
+		return (true);
+	if (event == 0)
+		return (true);
+	return (oes_event_in_bitmap(event, em->em_events));
+}
+
+static bool
+oes_client_self_entry_muted(struct oes_client *ec, pid_t pid, uint64_t genid,
+    oes_event_type_t event, bool *found)
+{
+	struct oes_mute_entry *em;
+
+	if (found != NULL)
+		*found = false;
+
+	if (pid != ec->ec_owner_pid ||
+	    (ec->ec_owner_genid != 0 && ec->ec_owner_genid != genid))
+		return (false);
+
+	LIST_FOREACH(em, &ec->ec_muted[oes_mute_proc_bucket(pid)], em_link) {
+		if (em->em_pid != pid)
+			continue;
+		if (em->em_genid != 0 && em->em_genid != genid)
+			continue;
+		if (found != NULL)
+			*found = true;
+		return (oes_mute_entry_matches_event(em, event));
+	}
+
+	return (false);
+}
+
 /*
  * Check if a process is muted for this client for a specific event
  *
@@ -565,6 +616,7 @@ oes_client_is_muted(struct oes_client *ec, struct proc *p, oes_event_type_t even
 {
 	struct oes_mute_entry *em;
 	bool in_list = false;
+	bool self_entry_found = false;
 	uint64_t genid;
 	bool inverted;
 
@@ -600,13 +652,13 @@ oes_client_is_muted(struct oes_client *ec, struct proc *p, oes_event_type_t even
 			PROC_UNLOCK(p);
 	}
 
-	/*
-	 * Check self-mute.  Self-mute is treated as just another entry
-	 * in the mute list for inversion purposes - it sets in_list=true
-	 * rather than returning early.  This allows inversion to work
-	 * correctly: in normal mode self-mute blocks events, in inverted
-	 * mode self-mute allows only self events through.
-	 */
+	in_list = oes_client_self_entry_muted(ec, p->p_pid, genid, event,
+	    &self_entry_found);
+	if (self_entry_found)
+		goto apply_inversion;
+
+	/* If the self-mute list entry could not be allocated, the flag still
+	 * represents a legacy mute-all self mute. */
 	if ((ec->ec_flags & EC_FLAG_MUTED_SELF) &&
 	    p->p_pid == ec->ec_owner_pid &&
 	    (ec->ec_owner_genid == 0 || ec->ec_owner_genid == genid)) {
@@ -626,14 +678,7 @@ oes_client_is_muted(struct oes_client *ec, struct proc *p, oes_event_type_t even
 		 * If all bitmaps are 0, all events are muted (legacy mute).
 		 * Otherwise, check if specific event is in bitmap.
 		 */
-		if (em->em_events[0] == 0 && em->em_events[1] == 0 &&
-		    em->em_events[2] == 0 && em->em_events[3] == 0) {
-			in_list = true;  /* All events muted */
-		} else if (event != 0 && oes_event_in_bitmap(event, em->em_events)) {
-			in_list = true;  /* Specific event muted */
-		} else if (event == 0) {
-			in_list = true;  /* Legacy: any mute entry counts */
-		}
+		in_list = oes_mute_entry_matches_event(em, event);
 		break;
 	}
 
@@ -654,6 +699,7 @@ oes_client_is_muted_by_token(struct oes_client *ec, const oes_proc_token_t *toke
 {
 	struct oes_mute_entry *em;
 	bool in_list = false;
+	bool self_entry_found = false;
 	pid_t pid;
 	uint64_t genid;
 	bool inverted;
@@ -666,9 +712,11 @@ oes_client_is_muted_by_token(struct oes_client *ec, const oes_proc_token_t *toke
 	pid = (pid_t)token->ept_id;
 	genid = token->ept_genid;
 
-	/*
-	 * Check self-mute using token info.
-	 */
+	in_list = oes_client_self_entry_muted(ec, pid, genid, event,
+	    &self_entry_found);
+	if (self_entry_found)
+		goto apply_inversion;
+
 	if ((ec->ec_flags & EC_FLAG_MUTED_SELF) &&
 	    pid == ec->ec_owner_pid &&
 	    (ec->ec_owner_genid == 0 || ec->ec_owner_genid == genid)) {
@@ -688,14 +736,7 @@ oes_client_is_muted_by_token(struct oes_client *ec, const oes_proc_token_t *toke
 		 * If all bitmaps are 0, all events are muted (legacy mute).
 		 * Otherwise, check if specific event is in bitmap.
 		 */
-		if (em->em_events[0] == 0 && em->em_events[1] == 0 &&
-		    em->em_events[2] == 0 && em->em_events[3] == 0) {
-			in_list = true;  /* All events muted */
-		} else if (event != 0 && oes_event_in_bitmap(event, em->em_events)) {
-			in_list = true;  /* Specific event muted */
-		} else if (event == 0) {
-			in_list = true;  /* Legacy: any mute entry counts */
-		}
+		in_list = oes_mute_entry_matches_event(em, event);
 		break;
 	}
 
@@ -716,9 +757,16 @@ oes_path_match(const struct oes_mute_path_entry *emp, const char *path)
 	if (emp->emp_type == OES_MUTE_PATH_LITERAL)
 		return (path_len == emp->emp_len &&
 		    memcmp(emp->emp_path, path, emp->emp_len) == 0);
-	if (emp->emp_type == OES_MUTE_PATH_PREFIX)
-		return (path_len >= emp->emp_len &&
-		    memcmp(emp->emp_path, path, emp->emp_len) == 0);
+	if (emp->emp_type == OES_MUTE_PATH_PREFIX) {
+		if (path_len < emp->emp_len ||
+		    memcmp(emp->emp_path, path, emp->emp_len) != 0)
+			return (false);
+		if (emp->emp_len == 1 && emp->emp_path[0] == '/')
+			return (true);
+		if (emp->emp_path[emp->emp_len - 1] == '/')
+			return (true);
+		return (path_len == emp->emp_len || path[emp->emp_len] == '/');
+	}
 	return (false);
 }
 
@@ -737,6 +785,10 @@ oes_client_is_path_muted(struct oes_client *ec, const char *path, bool target,
 	bool inverted;
 
 	EC_LOCK_ASSERT(ec);
+
+	inverted = target ?
+	    ((ec->ec_mute_invert & EC_MUTE_INVERT_TARGET) != 0) :
+	    ((ec->ec_mute_invert & EC_MUTE_INVERT_PATH) != 0);
 
 	if (path == NULL || path[0] == '\0')
 		return (false);
@@ -762,9 +814,6 @@ oes_client_is_path_muted(struct oes_client *ec, const char *path, bool target,
 		break;
 	}
 
-	inverted = target ?
-	    ((ec->ec_mute_invert & EC_MUTE_INVERT_TARGET) != 0) :
-	    ((ec->ec_mute_invert & EC_MUTE_INVERT_PATH) != 0);
 	return (inverted ? !in_list : in_list);
 }
 
@@ -784,6 +833,10 @@ oes_client_is_token_muted(struct oes_client *ec, uint64_t ino, uint64_t dev,
 	bool inverted;
 
 	EC_LOCK_ASSERT(ec);
+
+	inverted = target ?
+	    ((ec->ec_mute_invert & EC_MUTE_INVERT_TARGET) != 0) :
+	    ((ec->ec_mute_invert & EC_MUTE_INVERT_PATH) != 0);
 
 	if (ino == 0 && dev == 0)
 		return (false);
@@ -811,9 +864,6 @@ oes_client_is_token_muted(struct oes_client *ec, uint64_t ino, uint64_t dev,
 		break;
 	}
 
-	inverted = target ?
-	    ((ec->ec_mute_invert & EC_MUTE_INVERT_TARGET) != 0) :
-	    ((ec->ec_mute_invert & EC_MUTE_INVERT_PATH) != 0);
 	return (inverted ? !in_list : in_list);
 }
 
@@ -2188,8 +2238,14 @@ oes_fill_file(oes_file_t *ef, struct vnode *vp, struct ucred *cred,
 		    fullpath != NULL) {
 			ef->ef_path_off = oes_strtab_add(st, msg_base,
 			    fullpath);
+			if (ef->ef_path_off == 0)
+				oes_file_mark_path_unavailable(msg_base, ef);
+		} else {
+			oes_file_mark_path_unavailable(msg_base, ef);
 		}
 		if (freepath != NULL)
 			free(freepath, M_TEMP);
+	} else if (st != NULL && msg_base != NULL) {
+		oes_file_mark_path_unavailable(msg_base, ef);
 	}
 }

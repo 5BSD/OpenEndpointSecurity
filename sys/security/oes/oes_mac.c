@@ -264,6 +264,20 @@ oes_copy_component(char *dst, size_t dstlen, const struct componentname *cnp)
 }
 
 static void
+oes_copy_component_path(char *dst, size_t dstlen, const struct componentname *cnp)
+{
+
+	if (dstlen == 0)
+		return;
+	dst[0] = '\0';
+
+	if (cnp == NULL || cnp->cn_pnbuf == NULL || cnp->cn_pnbuf[0] == '\0')
+		return;
+
+	strlcpy(dst, cnp->cn_pnbuf, dstlen);
+}
+
+static void
 oes_build_path(char *dst, size_t dstlen, const char *dir, const char *name)
 {
 	size_t dlen;
@@ -287,6 +301,28 @@ oes_build_path(char *dst, size_t dstlen, const char *dir, const char *name)
 		snprintf(dst, dstlen, "%s%s", dir, name);
 	else
 		snprintf(dst, dstlen, "%s/%s", dir, name);
+}
+
+static void
+oes_file_set_resolved_path_off(oes_file_t *file, uint32_t path_off)
+{
+
+	file->ef_path_off = path_off;
+	if (path_off != 0) {
+		file->ef_meta_flags &= ~OES_FILE_META_PATH_UNAVAILABLE;
+		file->ef_meta_flags &= ~OES_FILE_META_PATH_REQUESTED;
+	}
+}
+
+static void
+oes_file_set_requested_path_off(oes_file_t *file, uint32_t path_off)
+{
+
+	file->ef_path_off = path_off;
+	if (path_off != 0) {
+		file->ef_meta_flags &= ~OES_FILE_META_PATH_UNAVAILABLE;
+		oes_file_mark_path_requested(file);
+	}
 }
 
 static struct oes_pending *
@@ -357,15 +393,27 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 		 * locks.  This avoids both M_WAITOK-under-mutex warnings
 		 * and the silent fail-open when M_NOWAIT fails.
 		 *
-		 * We allocate for sc_nclients and retry if it grew.
+		 * Size the clone pool to currently subscribed AUTH clients,
+		 * then re-check all eligibility while dispatching.  This keeps
+		 * memory use bounded by consulted clients instead of every open
+		 * fd.  If subscriptions grow between the estimate and dispatch,
+		 * the new clients can be served by the next event.
 		 */
 		for (;;) {
 			size_t need, i;
 
 			OES_LOCK();
-			need = oes_softc.sc_nclients;
+			need = 0;
+			LIST_FOREACH(ec, &oes_softc.sc_clients, ec_link) {
+				EC_LOCK(ec);
+				if ((ec->ec_flags & EC_FLAG_CLOSING) == 0 &&
+				    ec->ec_mode == OES_MODE_AUTH &&
+				    oes_client_subscribed(ec, event))
+					need++;
+				EC_UNLOCK(ec);
+			}
 			if (need == 0) {
-				/* No clients at all, nothing to dispatch */
+				/* No AUTH clients to consult, nothing to pre-allocate */
 				break;
 			}
 			if (need <= auth_max)
@@ -387,10 +435,10 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 				ag = NULL;
 			}
 
-			auth_eps = malloc(sizeof(*auth_eps) * need,
-			    M_OES, M_WAITOK | M_ZERO);
-			auth_clones = malloc(sizeof(*auth_clones) * need,
-			    M_OES, M_WAITOK | M_ZERO);
+			auth_eps = malloc(sizeof(*auth_eps) * need, M_OES,
+			    M_WAITOK | M_ZERO);
+			auth_clones = malloc(sizeof(*auth_clones) * need, M_OES,
+			    M_WAITOK | M_ZERO);
 			for (i = 0; i < need; i++)
 				auth_clones[i] = oes_pending_clone(ep, M_WAITOK);
 			ag = oes_auth_group_alloc(M_WAITOK);
@@ -560,9 +608,12 @@ oes_dispatch_event(struct oes_pending *ep, struct proc *p, struct ucred *cred,
 	 * allocation failure, muting, or no subscriptions), the event
 	 * is implicitly allowed. Log this for observability.
 	 */
-	if (is_auth && auth_count == 0 && !auth_consulted && !cached_denied)
+	if (is_auth && auth_count == 0 && !auth_consulted && !cached_denied) {
 		OES_DEBUG("AUTH event 0x%x: no clients consulted, fail-open",
 		    event);
+		if (oes_require_auth_clients || oes_auth_fail_closed)
+			error = EACCES;
+	}
 	if (is_auth && auth_count > 0 && ag != NULL)
 		error = oes_auth_group_wait(ag, auth_eps, auth_count);
 	if (is_auth && cached_denied)
@@ -707,6 +758,10 @@ oes_rename_cache_store(struct thread *td,
 	ctx->er_time = now;
 	ctx->er_src_dir_path[0] = '\0';
 	ctx->er_src_file_path[0] = '\0';
+	oes_copy_component_path(ctx->er_src_file_path,
+	    sizeof(ctx->er_src_file_path), info->cnp);
+	if (ctx->er_src_file_path[0] != '\0')
+		oes_file_mark_path_requested(&ctx->er_src_file);
 	if (info->dvp != NULL) {
 		oes_fill_file(&ctx->er_src_dir, info->dvp, info->cred,
 		    NULL, NULL);
@@ -731,16 +786,20 @@ oes_rename_cache_store(struct thread *td,
 		if (VOP_ISLOCKED(info->vp) == 0) {
 			char *fp = NULL, *free_fp = NULL;
 			if (vn_fullpath(info->vp, &fp, &free_fp) == 0 &&
-			    fp != NULL)
+			    fp != NULL) {
 				strlcpy(ctx->er_src_file_path, fp,
 				    sizeof(ctx->er_src_file_path));
+				ctx->er_src_file.ef_meta_flags &=
+				    ~OES_FILE_META_PATH_REQUESTED;
+			}
 			if (free_fp != NULL)
 				free(free_fp, M_TEMP);
 		}
 	}
 	oes_copy_component(ctx->er_src_name, sizeof(ctx->er_src_name),
 	    info->cnp);
-	if (ctx->er_src_dir_path[0] != '\0' &&
+	if (ctx->er_src_file_path[0] == '\0' &&
+	    ctx->er_src_dir_path[0] != '\0' &&
 	    ctx->er_src_name[0] != '\0') {
 		oes_build_path(ctx->er_src_file_path,
 		    sizeof(ctx->er_src_file_path),
@@ -1082,11 +1141,11 @@ oes_event_path_muted_join(struct oes_client *ec, const char *dir,
 	char fullpath[MAXPATHLEN];
 
 	if (dir == NULL || name == NULL)
-		return (false);
+		return (oes_client_is_path_muted(ec, "", target, event));
 	if (dir[0] == '\0' || name[0] == '\0')
-		return (false);
+		return (oes_client_is_path_muted(ec, "", target, event));
 	if (require_basename && strchr(name, '/') != NULL)
-		return (false);
+		return (oes_client_is_path_muted(ec, "", target, event));
 
 	oes_build_path(fullpath, sizeof(fullpath), dir, name);
 	return (oes_client_is_path_muted(ec, fullpath, target, event));
@@ -1564,6 +1623,18 @@ oes_strtab_join_path(struct oes_strtab *st, void *msg_base,
 	return (oes_strtab_add(st, msg_base, fullpath));
 }
 
+static uint32_t
+oes_strtab_component_path(struct oes_strtab *st, void *msg_base,
+    const struct componentname *cnp)
+{
+	char pathbuf[MAXPATHLEN];
+
+	oes_copy_component_path(pathbuf, sizeof(pathbuf), cnp);
+	if (pathbuf[0] == '\0')
+		return (0);
+	return (oes_strtab_add(st, msg_base, pathbuf));
+}
+
 static void
 oes_fill_event_open(struct oes_pending *ep, struct vnode *vp,
     accmode_t accmode, struct ucred *cred,
@@ -1655,6 +1726,8 @@ oes_fill_event_create(struct oes_pending *ep, struct vnode *dvp,
 	char namebuf[MAXNAMLEN + 1];
 	const char *dir_path;
 	uint32_t file_path_off;
+	bool requested_path;
+	bool basename_only;
 
 	oes_fill_event_file(&ep->ep_msg.em_event_data.create.dir, dvp, cred,
 	    st, msg_base);
@@ -1665,9 +1738,30 @@ oes_fill_event_create(struct oes_pending *ep, struct vnode *dvp,
 	dir_path = oes_msg_string(&ep->ep_msg,
 	    ep->ep_msg.em_event_data.create.dir.ef_path_off);
 	file_path_off = oes_strtab_join_path(st, msg_base, dir_path, namebuf);
-	if (file_path_off == 0 && namebuf[0] != '\0')
+	requested_path = false;
+	basename_only = false;
+	if (file_path_off == 0) {
+		file_path_off = oes_strtab_component_path(st, msg_base, cnp);
+		requested_path = (file_path_off != 0);
+	}
+	if (file_path_off == 0 && namebuf[0] != '\0') {
 		file_path_off = oes_strtab_add(st, msg_base, namebuf);
-	ep->ep_msg.em_event_data.create.file.ef_path_off = file_path_off;
+		basename_only = (file_path_off != 0);
+	}
+	if (basename_only) {
+		ep->ep_msg.em_event_data.create.file.ef_path_off = file_path_off;
+		oes_file_mark_path_unavailable(&ep->ep_msg,
+		    &ep->ep_msg.em_event_data.create.file);
+	} else if (file_path_off == 0) {
+		oes_file_mark_path_unavailable(&ep->ep_msg,
+		    &ep->ep_msg.em_event_data.create.file);
+	} else if (requested_path) {
+		oes_file_set_requested_path_off(
+		    &ep->ep_msg.em_event_data.create.file, file_path_off);
+	} else {
+		oes_file_set_resolved_path_off(
+		    &ep->ep_msg.em_event_data.create.file, file_path_off);
+	}
 
 	if (vap != NULL)
 		ep->ep_msg.em_event_data.create.mode = vap->va_mode;
@@ -1681,6 +1775,7 @@ oes_fill_event_unlink(struct oes_pending *ep, struct vnode *dvp,
 	char namebuf[MAXNAMLEN + 1];
 	const char *dir_path;
 	uint32_t file_path_off;
+	bool requested_path;
 
 	oes_fill_event_file(&ep->ep_msg.em_event_data.unlink.dir, dvp, cred,
 	    st, msg_base);
@@ -1692,8 +1787,25 @@ oes_fill_event_unlink(struct oes_pending *ep, struct vnode *dvp,
 	dir_path = oes_msg_string(&ep->ep_msg,
 	    ep->ep_msg.em_event_data.unlink.dir.ef_path_off);
 	file_path_off = oes_strtab_join_path(st, msg_base, dir_path, namebuf);
-	if (file_path_off != 0)
-		ep->ep_msg.em_event_data.unlink.file.ef_path_off = file_path_off;
+	requested_path = false;
+	if (file_path_off == 0) {
+		file_path_off = oes_strtab_component_path(st, msg_base, cnp);
+		requested_path = (file_path_off != 0);
+	}
+	if (file_path_off != 0) {
+		if (requested_path) {
+			oes_file_set_requested_path_off(
+			    &ep->ep_msg.em_event_data.unlink.file,
+			    file_path_off);
+		} else {
+			oes_file_set_resolved_path_off(
+			    &ep->ep_msg.em_event_data.unlink.file,
+			    file_path_off);
+		}
+	} else {
+		oes_file_mark_path_unavailable(&ep->ep_msg,
+		    &ep->ep_msg.em_event_data.unlink.file);
+	}
 }
 
 static void
@@ -1710,10 +1822,30 @@ oes_fill_event_rename(struct oes_pending *ep,
 		ep->ep_msg.em_event_data.rename.src_file =
 		    rename_ctx->er_src_file;
 		/* Add paths from context's own buffers to this message's strtab */
-		ep->ep_msg.em_event_data.rename.src_dir.ef_path_off =
-		    oes_strtab_add(st, msg_base, rename_ctx->er_src_dir_path);
-		ep->ep_msg.em_event_data.rename.src_file.ef_path_off =
-		    oes_strtab_add(st, msg_base, rename_ctx->er_src_file_path);
+		oes_file_set_resolved_path_off(&ep->ep_msg.em_event_data.rename.src_dir,
+		    oes_strtab_add(st, msg_base, rename_ctx->er_src_dir_path));
+		if ((rename_ctx->er_src_file.ef_meta_flags &
+		    OES_FILE_META_PATH_REQUESTED) != 0) {
+			oes_file_set_requested_path_off(
+			    &ep->ep_msg.em_event_data.rename.src_file,
+			    oes_strtab_add(st, msg_base,
+			    rename_ctx->er_src_file_path));
+		} else {
+			oes_file_set_resolved_path_off(
+			    &ep->ep_msg.em_event_data.rename.src_file,
+			    oes_strtab_add(st, msg_base,
+			    rename_ctx->er_src_file_path));
+		}
+		if (rename_ctx->er_src_dir_path[0] == '\0' ||
+		    ep->ep_msg.em_event_data.rename.src_dir.ef_path_off == 0) {
+			oes_file_mark_path_unavailable(&ep->ep_msg,
+			    &ep->ep_msg.em_event_data.rename.src_dir);
+		}
+		if (rename_ctx->er_src_file_path[0] == '\0' ||
+		    ep->ep_msg.em_event_data.rename.src_file.ef_path_off == 0) {
+			oes_file_mark_path_unavailable(&ep->ep_msg,
+			    &ep->ep_msg.em_event_data.rename.src_file);
+		}
 	}
 	oes_fill_event_file(&ep->ep_msg.em_event_data.rename.dst_dir, dvp, cred,
 	    st, msg_base);
@@ -2393,6 +2525,14 @@ oes_generate_exec_event(struct ucred *cred, struct vnode *vp,
 			ep->ep_msg.em_process.ep_path_off = exec_path_off;
 			ep->ep_msg.em_event_data.exec.target.ep_path_off =
 			    exec_path_off;
+			if (exec_path_off == 0) {
+				oes_file_mark_path_unavailable(&ep->ep_msg,
+				    &ep->ep_msg.em_event_data.exec.executable);
+				oes_process_mark_path_unavailable(&ep->ep_msg,
+				    &ep->ep_msg.em_process);
+				oes_process_mark_path_unavailable(&ep->ep_msg,
+				    &ep->ep_msg.em_event_data.exec.target);
+			}
 		}
 
 		if (imgp != NULL && imgp->args != NULL) {

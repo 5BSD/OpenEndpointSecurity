@@ -19,10 +19,12 @@
 #include <sys/ioccom.h>
 #include <sys/param.h>
 
+#include "oes_event_table.h"
+
 /*
  * API Version - increment on breaking changes
  */
-#define OES_API_VERSION		1
+#define OES_API_VERSION		3
 
 /*
  * Event Types
@@ -31,114 +33,23 @@
  * NOTIFY events (0x1001-0x1FFF): Informational, never block.
  */
 typedef enum {
-	/* AUTH events - require response, can block operations */
-	OES_EVENT_AUTH_EXEC		= 0x0001,
-	OES_EVENT_AUTH_OPEN		= 0x0002,
-	OES_EVENT_AUTH_CREATE		= 0x0003,
-	OES_EVENT_AUTH_UNLINK		= 0x0004,
-	OES_EVENT_AUTH_RENAME		= 0x0005,
-	OES_EVENT_AUTH_LINK		= 0x0006,
-	OES_EVENT_AUTH_MOUNT		= 0x0007,
-	OES_EVENT_AUTH_KLDLOAD		= 0x0008,
-	OES_EVENT_AUTH_MMAP		= 0x0009,
-	OES_EVENT_AUTH_MPROTECT		= 0x000A,
-	OES_EVENT_AUTH_CHDIR		= 0x000B,
-	OES_EVENT_AUTH_CHROOT		= 0x000C,
-	OES_EVENT_AUTH_SETEXTATTR	= 0x000D,
-	OES_EVENT_AUTH_PTRACE		= 0x000E,
-	OES_EVENT_AUTH_ACCESS		= 0x000F,
-	OES_EVENT_AUTH_READ		= 0x0010,
-	OES_EVENT_AUTH_WRITE		= 0x0011,
-	OES_EVENT_AUTH_LOOKUP		= 0x0012,
-	OES_EVENT_AUTH_SETMODE		= 0x0013,
-	OES_EVENT_AUTH_SETOWNER		= 0x0014,
-	OES_EVENT_AUTH_SETFLAGS		= 0x0015,
-	OES_EVENT_AUTH_SETUTIMES	= 0x0016,
-	OES_EVENT_AUTH_STAT		= 0x0017,
-	OES_EVENT_AUTH_POLL		= 0x0018,
-	OES_EVENT_AUTH_REVOKE		= 0x0019,
-	OES_EVENT_AUTH_READDIR		= 0x001A,
-	OES_EVENT_AUTH_READLINK		= 0x001B,
-	OES_EVENT_AUTH_GETEXTATTR	= 0x001C,
-	OES_EVENT_AUTH_DELETEEXTATTR	= 0x001D,
-	OES_EVENT_AUTH_LISTEXTATTR	= 0x001E,
-	OES_EVENT_AUTH_GETACL		= 0x001F,
-	OES_EVENT_AUTH_SETACL		= 0x0020,
-	OES_EVENT_AUTH_DELETEACL	= 0x0021,
-	OES_EVENT_AUTH_RELABEL		= 0x0022,
-	/* 0x0023-0x0028 reserved (removed: NOSLEEP hooks are NOTIFY-only) */
-	OES_EVENT_AUTH_SWAPON		= 0x0029,
-	OES_EVENT_AUTH_SWAPOFF		= 0x002A,
-	/* 0x002B-0x0038 reserved (socket/pipe/mount_stat/priv/sched are NOTIFY-only) */
-
-	/* NOTIFY events - informational only */
-	OES_EVENT_NOTIFY_EXEC		= 0x1001,
-	OES_EVENT_NOTIFY_EXIT		= 0x1002,
-	OES_EVENT_NOTIFY_FORK		= 0x1003,
-	OES_EVENT_NOTIFY_OPEN		= 0x1004,
-	OES_EVENT_NOTIFY_CREATE		= 0x1006,
-	OES_EVENT_NOTIFY_UNLINK		= 0x1007,
-	OES_EVENT_NOTIFY_RENAME		= 0x1008,
-	OES_EVENT_NOTIFY_MOUNT		= 0x1009,
-	OES_EVENT_NOTIFY_KLDLOAD	= 0x100B,
-	OES_EVENT_NOTIFY_SIGNAL		= 0x100D,
-	OES_EVENT_NOTIFY_PTRACE		= 0x100E,
-	OES_EVENT_NOTIFY_SETUID		= 0x100F,
-	OES_EVENT_NOTIFY_SETGID		= 0x1010,
-	OES_EVENT_NOTIFY_ACCESS		= 0x1011,
-	OES_EVENT_NOTIFY_READ		= 0x1012,
-	OES_EVENT_NOTIFY_WRITE		= 0x1013,
-	OES_EVENT_NOTIFY_LOOKUP		= 0x1014,
-	OES_EVENT_NOTIFY_SETMODE	= 0x1015,
-	OES_EVENT_NOTIFY_SETOWNER	= 0x1016,
-	OES_EVENT_NOTIFY_SETFLAGS	= 0x1017,
-	OES_EVENT_NOTIFY_SETUTIMES	= 0x1018,
-	OES_EVENT_NOTIFY_STAT		= 0x1019,
-	OES_EVENT_NOTIFY_POLL		= 0x101A,
-	OES_EVENT_NOTIFY_REVOKE		= 0x101B,
-	OES_EVENT_NOTIFY_READDIR	= 0x101C,
-	OES_EVENT_NOTIFY_READLINK	= 0x101D,
-	OES_EVENT_NOTIFY_GETEXTATTR	= 0x101E,
-	OES_EVENT_NOTIFY_DELETEEXTATTR	= 0x101F,
-	OES_EVENT_NOTIFY_LISTEXTATTR	= 0x1020,
-	OES_EVENT_NOTIFY_GETACL		= 0x1021,
-	OES_EVENT_NOTIFY_SETACL		= 0x1022,
-	OES_EVENT_NOTIFY_DELETEACL	= 0x1023,
-	OES_EVENT_NOTIFY_RELABEL	= 0x1024,
-	OES_EVENT_NOTIFY_SETEXTATTR	= 0x1025,
-	OES_EVENT_NOTIFY_SOCKET_CONNECT	= 0x1026,
-	OES_EVENT_NOTIFY_SOCKET_BIND	= 0x1027,
-	OES_EVENT_NOTIFY_SOCKET_LISTEN	= 0x1028,
-	OES_EVENT_NOTIFY_REBOOT		= 0x1029,
-	OES_EVENT_NOTIFY_SYSCTL		= 0x102A,
-	OES_EVENT_NOTIFY_KENV		= 0x102B,
-	OES_EVENT_NOTIFY_SWAPON		= 0x102C,
-	OES_EVENT_NOTIFY_SWAPOFF	= 0x102D,
-	OES_EVENT_NOTIFY_UNMOUNT	= 0x102E,
-	OES_EVENT_NOTIFY_KLDUNLOAD	= 0x102F,
-	OES_EVENT_NOTIFY_LINK		= 0x1030,
-	OES_EVENT_NOTIFY_MMAP		= 0x1031,
-	OES_EVENT_NOTIFY_MPROTECT	= 0x1032,
-	OES_EVENT_NOTIFY_CHDIR		= 0x1033,
-	OES_EVENT_NOTIFY_CHROOT		= 0x1034,
-	OES_EVENT_NOTIFY_SOCKET_CREATE	= 0x1035,
-	OES_EVENT_NOTIFY_SOCKET_ACCEPT	= 0x1036,
-	OES_EVENT_NOTIFY_SOCKET_SEND	= 0x1037,
-	OES_EVENT_NOTIFY_SOCKET_RECEIVE	= 0x1038,
-	OES_EVENT_NOTIFY_SOCKET_STAT	= 0x1039,
-	OES_EVENT_NOTIFY_SOCKET_POLL	= 0x103A,
-	OES_EVENT_NOTIFY_PIPE_READ	= 0x103B,
-	OES_EVENT_NOTIFY_PIPE_WRITE	= 0x103C,
-	OES_EVENT_NOTIFY_PIPE_STAT	= 0x103D,
-	OES_EVENT_NOTIFY_PIPE_POLL	= 0x103E,
-	OES_EVENT_NOTIFY_PIPE_IOCTL	= 0x103F,
-	OES_EVENT_NOTIFY_MOUNT_STAT	= 0x1040,
-	OES_EVENT_NOTIFY_PRIV_CHECK	= 0x1041,
-	OES_EVENT_NOTIFY_PROC_SCHED	= 0x1042,
+#define OES_ENUM_EVENT(name, value)	name = value,
+	OES_AUTH_EVENT_LIST(OES_ENUM_EVENT)
+	OES_NOTIFY_EVENT_LIST(OES_ENUM_EVENT)
+#undef OES_ENUM_EVENT
 } oes_event_type_t;
 
 #define OES_EVENT_IS_AUTH(e)	(((e) & 0x1000) == 0)
 #define OES_EVENT_IS_NOTIFY(e)	(((e) & 0x1000) != 0)
+
+/*
+ * Canonical subscription bitmaps for all currently defined event types.
+ * Bit positions are (event & 0x0FFF), split into low/high 64-bit words.
+ */
+#define OES_AUTH_EVENT_MASK_LO		0x607FFFFFFFEULL
+#define OES_AUTH_EVENT_MASK_HI		0x0ULL
+#define OES_NOTIFY_EVENT_MASK_LO	0xFFFFFFFFFFFFEBDEULL
+#define OES_NOTIFY_EVENT_MASK_HI	0x7ULL
 
 /*
  * Events NOT implementable due to FreeBSD limitations:
@@ -269,6 +180,7 @@ typedef struct {
 	uint32_t	ep_cwd_off;	/* Current working directory */
 	uint32_t	ep_jailname_off; /* Jail name if jailed */
 	uint32_t	ep_pad2;	/* Alignment */
+	uint32_t	ep_meta_flags;	/* OES_PROC_META_* */
 } oes_process_t;
 
 /* Process flags */
@@ -317,6 +229,7 @@ typedef struct {
 	/* Filesystem info */
 	char		ef_fstype[16];	/* Filesystem type (ufs, zfs, etc.) */
 	uint32_t	ef_path_off;	/* Path (string table offset, 0 = empty) */
+	uint32_t	ef_meta_flags;	/* OES_FILE_META_* */
 } oes_file_t;
 
 /* File types */
@@ -656,6 +569,8 @@ typedef struct {
 typedef struct {
 	uint32_t	em_version;	/* OES_MESSAGE_VERSION */
 	uint32_t	em_size;	/* Total message size (header + strings) */
+	uint32_t	em_flags;	/* OES_MSG_FLAG_* */
+	uint32_t	em_reserved;	/* Reserved, must be 0 */
 	uint64_t	em_id;		/* Unique message ID (for response) */
 	oes_event_type_t em_event;	/* Event type */
 	oes_action_t	em_action;	/* AUTH or NOTIFY */
@@ -726,7 +641,59 @@ typedef struct {
 	} em_event_data;
 } oes_message_t;
 
-#define OES_MESSAGE_VERSION	2
+#define OES_MESSAGE_VERSION	4
+
+/* Message flags */
+#define OES_MSG_FLAG_STRINGS_TRUNCATED	0x00000001
+#define OES_MSG_FLAG_PATH_UNAVAILABLE	0x00000002
+
+/* Object metadata flags */
+#define OES_PROC_META_PATH_UNAVAILABLE	0x00000001
+#define OES_FILE_META_PATH_UNAVAILABLE	0x00000001
+#define OES_FILE_META_PATH_REQUESTED	0x00000002
+
+static inline void
+oes_message_mark_path_unavailable(oes_message_t *msg)
+{
+
+	if (msg != NULL)
+		msg->em_flags |= OES_MSG_FLAG_PATH_UNAVAILABLE;
+}
+
+static inline void
+oes_process_mark_path_unavailable(oes_message_t *msg, oes_process_t *proc)
+{
+
+	oes_message_mark_path_unavailable(msg);
+	if (proc != NULL)
+		proc->ep_meta_flags |= OES_PROC_META_PATH_UNAVAILABLE;
+}
+
+static inline void
+oes_file_mark_path_unavailable(oes_message_t *msg, oes_file_t *file)
+{
+
+	oes_message_mark_path_unavailable(msg);
+	if (file != NULL)
+		file->ef_meta_flags |= OES_FILE_META_PATH_UNAVAILABLE;
+}
+
+static inline void
+oes_file_mark_path_requested(oes_file_t *file)
+{
+
+	if (file != NULL)
+		file->ef_meta_flags |= OES_FILE_META_PATH_REQUESTED;
+}
+
+static inline int
+oes_message_is_compatible(const oes_message_t *msg)
+{
+
+	return (msg != NULL &&
+	    msg->em_version == OES_MESSAGE_VERSION &&
+	    msg->em_reserved == 0);
+}
 
 /*
  * Maximum message size including string table.
@@ -1004,6 +971,8 @@ struct oes_timeout_action_args {
 typedef struct {
 	oes_event_type_t eck_event;	/* OES_EVENT_AUTH_* or ANY */
 	uint32_t	eck_flags;	/* OES_CACHE_KEY_* */
+	uint32_t	eck_op_flags;	/* Event-specific flags/protections */
+	uint32_t	eck_pad;	/* Reserved, must be 0 */
 	oes_proc_token_t eck_process;
 	oes_file_token_t eck_file;
 	oes_file_token_t eck_target;

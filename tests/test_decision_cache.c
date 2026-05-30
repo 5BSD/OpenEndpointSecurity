@@ -278,6 +278,7 @@ main(void)
 	memset(&entry, 0, sizeof(entry));
 	entry.ece_key.eck_event = OES_EVENT_AUTH_OPEN;
 	entry.ece_key.eck_flags = OES_CACHE_KEY_PROCESS | OES_CACHE_KEY_FILE;
+	entry.ece_key.eck_op_flags = (uint32_t)msg->em_event_data.open.flags;
 	entry.ece_key.eck_process = msg->em_process.ep_token;
 	entry.ece_key.eck_file = msg->em_event_data.open.file.ef_token;
 	entry.ece_result = OES_AUTH_ALLOW;
@@ -332,6 +333,7 @@ main(void)
 	memset(&entry, 0, sizeof(entry));
 	entry.ece_key.eck_event = OES_EVENT_AUTH_OPEN;
 	entry.ece_key.eck_flags = OES_CACHE_KEY_PROCESS | OES_CACHE_KEY_FILE;
+	entry.ece_key.eck_op_flags = (uint32_t)msg->em_event_data.open.flags;
 	entry.ece_key.eck_process = msg->em_process.ep_token;
 	entry.ece_key.eck_file = msg->em_event_data.open.file.ef_token;
 	entry.ece_result = OES_AUTH_DENY;

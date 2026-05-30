@@ -215,16 +215,6 @@ performance.
 - [ ] Uses standard Capsicum rights model
 - [ ] Uses standard cdev interfaces
 
----
-
-## Future Requirements / TODOs
-
-- [ ] Expand event catalog beyond current vnode/process coverage (network,
-      IPC, device, audit, etc.)
-- [ ] Define multi-client AUTH delivery and arbitration semantics
-- [ ] Fuller suppression/mute semantics (process tree, file tokens, per-event
-      filters, path globbing, global/namespace mutes)
-
 ## Traceability Matrix
 
 | Requirement | Design Section | Test Case |

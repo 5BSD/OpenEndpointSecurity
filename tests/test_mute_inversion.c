@@ -115,9 +115,8 @@ test_path_mute_inversion(void)
 	invert.emi_type = OES_MUTE_INVERT_PATH;
 	invert.emi_invert = 1;
 	if (ioctl(fd, OES_IOC_SET_MUTE_INVERT, &invert) < 0) {
-		/* May not be implemented */
 		if (errno == ENOTTY || errno == EINVAL) {
-			printf("    INFO: mute inversion not implemented\n");
+			printf("    INFO: mute inversion unsupported by loaded module\n");
 			close(fd);
 			printf("    PASS: mute inversion test completed\n");
 			return (0);
@@ -196,7 +195,7 @@ test_process_mute_inversion(void)
 	invert.emi_invert = 1;
 	if (ioctl(fd, OES_IOC_SET_MUTE_INVERT, &invert) < 0) {
 		if (errno == ENOTTY || errno == EINVAL) {
-			printf("    INFO: process mute inversion not implemented\n");
+			printf("    INFO: process mute inversion unsupported by loaded module\n");
 		} else {
 			perror("OES_IOC_SET_MUTE_INVERT");
 		}
@@ -241,7 +240,7 @@ test_get_mute_invert(void)
 	retrieved.emi_type = OES_MUTE_INVERT_PROCESS;
 	if (ioctl(fd, OES_IOC_GET_MUTE_INVERT, &retrieved) < 0) {
 		if (errno == ENOTTY || errno == EINVAL) {
-			printf("    INFO: GET_MUTE_INVERT not implemented\n");
+			printf("    INFO: GET_MUTE_INVERT unsupported by loaded module\n");
 			close(fd);
 			printf("    PASS: GET_MUTE_INVERT tested\n");
 			return (0);

@@ -367,6 +367,8 @@ emit_process(FILE *fp, int depth, const char *key, const oes_message_t *msg,
 	    oes_msg_string(msg, proc->ep_cwd_off), true);
 	json_kv_str(fp, depth + 1, "tty", proc->ep_tty, true);
 	json_kv_str(fp, depth + 1, "login", proc->ep_login, true);
+	json_kv_bool(fp, depth + 1, "path_unavailable",
+	    (proc->ep_meta_flags & OES_PROC_META_PATH_UNAVAILABLE) != 0, true);
 
 	/* All flags */
 	json_kv_bool(fp, depth + 1, "setuid",
@@ -425,6 +427,10 @@ emit_file(FILE *fp, int depth, const char *key, const oes_message_t *msg,
 	json_kv_str(fp, depth + 1, "type", type_name, true);
 	json_kv_uint(fp, depth + 1, "ino", file->ef_ino, true);
 	json_kv_uint(fp, depth + 1, "dev", file->ef_dev, true);
+	json_kv_bool(fp, depth + 1, "path_unavailable",
+	    (file->ef_meta_flags & OES_FILE_META_PATH_UNAVAILABLE) != 0, true);
+	json_kv_bool(fp, depth + 1, "path_requested",
+	    (file->ef_meta_flags & OES_FILE_META_PATH_REQUESTED) != 0, true);
 
 	/* Size */
 	json_kv_uint(fp, depth + 1, "size", file->ef_size, true);
@@ -1086,100 +1092,24 @@ emit_event_data(FILE *fp, int depth, const oes_message_t *msg)
 	}
 }
 
-/*
- * Event name lookup table for command-line parsing.
- * Maps short names (e.g., "exec", "open") to NOTIFY event types.
- */
-static const struct {
-	const char		*name;
-	oes_event_type_t	notify;
-} event_names[] = {
-	{ "exec",		OES_EVENT_NOTIFY_EXEC },
-	{ "exit",		OES_EVENT_NOTIFY_EXIT },
-	{ "fork",		OES_EVENT_NOTIFY_FORK },
-	{ "open",		OES_EVENT_NOTIFY_OPEN },
-	{ "create",		OES_EVENT_NOTIFY_CREATE },
-	{ "unlink",		OES_EVENT_NOTIFY_UNLINK },
-	{ "rename",		OES_EVENT_NOTIFY_RENAME },
-	{ "mount",		OES_EVENT_NOTIFY_MOUNT },
-	{ "kldload",		OES_EVENT_NOTIFY_KLDLOAD },
-	{ "signal",		OES_EVENT_NOTIFY_SIGNAL },
-	{ "ptrace",		OES_EVENT_NOTIFY_PTRACE },
-	{ "setuid",		OES_EVENT_NOTIFY_SETUID },
-	{ "setgid",		OES_EVENT_NOTIFY_SETGID },
-	{ "access",		OES_EVENT_NOTIFY_ACCESS },
-	{ "read",		OES_EVENT_NOTIFY_READ },
-	{ "write",		OES_EVENT_NOTIFY_WRITE },
-	{ "lookup",		OES_EVENT_NOTIFY_LOOKUP },
-	{ "setmode",		OES_EVENT_NOTIFY_SETMODE },
-	{ "setowner",		OES_EVENT_NOTIFY_SETOWNER },
-	{ "setflags",		OES_EVENT_NOTIFY_SETFLAGS },
-	{ "setutimes",		OES_EVENT_NOTIFY_SETUTIMES },
-	{ "stat",		OES_EVENT_NOTIFY_STAT },
-	{ "poll",		OES_EVENT_NOTIFY_POLL },
-	{ "revoke",		OES_EVENT_NOTIFY_REVOKE },
-	{ "readdir",		OES_EVENT_NOTIFY_READDIR },
-	{ "readlink",		OES_EVENT_NOTIFY_READLINK },
-	{ "setextattr",		OES_EVENT_NOTIFY_SETEXTATTR },
-	{ "getextattr",		OES_EVENT_NOTIFY_GETEXTATTR },
-	{ "deleteextattr",	OES_EVENT_NOTIFY_DELETEEXTATTR },
-	{ "listextattr",	OES_EVENT_NOTIFY_LISTEXTATTR },
-	{ "getacl",		OES_EVENT_NOTIFY_GETACL },
-	{ "setacl",		OES_EVENT_NOTIFY_SETACL },
-	{ "deleteacl",		OES_EVENT_NOTIFY_DELETEACL },
-	{ "relabel",		OES_EVENT_NOTIFY_RELABEL },
-	{ "link",		OES_EVENT_NOTIFY_LINK },
-	{ "mmap",		OES_EVENT_NOTIFY_MMAP },
-	{ "mprotect",		OES_EVENT_NOTIFY_MPROTECT },
-	{ "chdir",		OES_EVENT_NOTIFY_CHDIR },
-	{ "chroot",		OES_EVENT_NOTIFY_CHROOT },
-	{ "socket_connect",	OES_EVENT_NOTIFY_SOCKET_CONNECT },
-	{ "socket_bind",	OES_EVENT_NOTIFY_SOCKET_BIND },
-	{ "socket_listen",	OES_EVENT_NOTIFY_SOCKET_LISTEN },
-	{ "socket_create",	OES_EVENT_NOTIFY_SOCKET_CREATE },
-	{ "socket_accept",	OES_EVENT_NOTIFY_SOCKET_ACCEPT },
-	{ "socket_send",	OES_EVENT_NOTIFY_SOCKET_SEND },
-	{ "socket_receive",	OES_EVENT_NOTIFY_SOCKET_RECEIVE },
-	{ "socket_stat",	OES_EVENT_NOTIFY_SOCKET_STAT },
-	{ "socket_poll",	OES_EVENT_NOTIFY_SOCKET_POLL },
-	{ "reboot",		OES_EVENT_NOTIFY_REBOOT },
-	{ "sysctl",		OES_EVENT_NOTIFY_SYSCTL },
-	{ "kenv",		OES_EVENT_NOTIFY_KENV },
-	{ "swapon",		OES_EVENT_NOTIFY_SWAPON },
-	{ "swapoff",		OES_EVENT_NOTIFY_SWAPOFF },
-	{ "unmount",		OES_EVENT_NOTIFY_UNMOUNT },
-	{ "kldunload",		OES_EVENT_NOTIFY_KLDUNLOAD },
-	{ "pipe_read",		OES_EVENT_NOTIFY_PIPE_READ },
-	{ "pipe_write",		OES_EVENT_NOTIFY_PIPE_WRITE },
-	{ "pipe_stat",		OES_EVENT_NOTIFY_PIPE_STAT },
-	{ "pipe_poll",		OES_EVENT_NOTIFY_PIPE_POLL },
-	{ "pipe_ioctl",		OES_EVENT_NOTIFY_PIPE_IOCTL },
-	{ "mount_stat",		OES_EVENT_NOTIFY_MOUNT_STAT },
-	{ "priv_check",		OES_EVENT_NOTIFY_PRIV_CHECK },
-	{ "proc_sched",		OES_EVENT_NOTIFY_PROC_SCHED },
-	{ NULL, 0 }
-};
-
 static oes_event_type_t
 lookup_event(const char *name)
 {
-	size_t i;
-
-	for (i = 0; event_names[i].name != NULL; i++) {
-		if (strcasecmp(event_names[i].name, name) == 0)
-			return (event_names[i].notify);
-	}
+#define OES_EVENT_NAME_CASE(short_name, notify_event) \
+	if (strcasecmp((short_name), name) == 0) return (notify_event);
+	OES_NOTIFY_EVENT_NAME_LIST(OES_EVENT_NAME_CASE)
+#undef OES_EVENT_NAME_CASE
 	return (0);
 }
 
 static void
 list_events(void)
 {
-	size_t i;
-
 	fprintf(stderr, "Available event names:\n");
-	for (i = 0; event_names[i].name != NULL; i++)
-		fprintf(stderr, "  %s\n", event_names[i].name);
+#define OES_EVENT_NAME_CASE(short_name, notify_event) \
+	fprintf(stderr, "  %s\n", (short_name));
+	OES_NOTIFY_EVENT_NAME_LIST(OES_EVENT_NAME_CASE)
+#undef OES_EVENT_NAME_CASE
 }
 
 static void
@@ -1217,47 +1147,13 @@ event_has_auth(oes_event_type_t ev)
 	if (OES_EVENT_IS_AUTH(ev))
 		return (true);
 
+#define OES_EVENT_AUTH_CASE(auth_event, notify_event) case notify_event: return (true);
 	switch (ev) {
-	case OES_EVENT_NOTIFY_EXEC:
-	case OES_EVENT_NOTIFY_OPEN:
-	case OES_EVENT_NOTIFY_CREATE:
-	case OES_EVENT_NOTIFY_UNLINK:
-	case OES_EVENT_NOTIFY_RENAME:
-	case OES_EVENT_NOTIFY_LINK:
-	case OES_EVENT_NOTIFY_MOUNT:
-	case OES_EVENT_NOTIFY_KLDLOAD:
-	case OES_EVENT_NOTIFY_MMAP:
-	case OES_EVENT_NOTIFY_MPROTECT:
-	case OES_EVENT_NOTIFY_CHDIR:
-	case OES_EVENT_NOTIFY_CHROOT:
-	case OES_EVENT_NOTIFY_SETEXTATTR:
-	case OES_EVENT_NOTIFY_PTRACE:
-	case OES_EVENT_NOTIFY_ACCESS:
-	case OES_EVENT_NOTIFY_READ:
-	case OES_EVENT_NOTIFY_WRITE:
-	case OES_EVENT_NOTIFY_LOOKUP:
-	case OES_EVENT_NOTIFY_SETMODE:
-	case OES_EVENT_NOTIFY_SETOWNER:
-	case OES_EVENT_NOTIFY_SETFLAGS:
-	case OES_EVENT_NOTIFY_SETUTIMES:
-	case OES_EVENT_NOTIFY_STAT:
-	case OES_EVENT_NOTIFY_POLL:
-	case OES_EVENT_NOTIFY_REVOKE:
-	case OES_EVENT_NOTIFY_READDIR:
-	case OES_EVENT_NOTIFY_READLINK:
-	case OES_EVENT_NOTIFY_GETEXTATTR:
-	case OES_EVENT_NOTIFY_DELETEEXTATTR:
-	case OES_EVENT_NOTIFY_LISTEXTATTR:
-	case OES_EVENT_NOTIFY_GETACL:
-	case OES_EVENT_NOTIFY_SETACL:
-	case OES_EVENT_NOTIFY_DELETEACL:
-	case OES_EVENT_NOTIFY_RELABEL:
-	case OES_EVENT_NOTIFY_SWAPON:
-	case OES_EVENT_NOTIFY_SWAPOFF:
-		return (true);
+	OES_AUTH_NOTIFY_EVENT_LIST(OES_EVENT_AUTH_CASE)
 	default:
 		return (false);
 	}
+#undef OES_EVENT_AUTH_CASE
 }
 
 /*
@@ -1293,6 +1189,10 @@ handle_event(oes_client_t *client __unused, const oes_message_t *msg,
 	    event_has_auth(msg->em_event), true);
 
 	json_kv_uint(fp, d, "version", msg->em_version, true);
+	json_kv_bool(fp, d, "strings_truncated",
+	    (msg->em_flags & OES_MSG_FLAG_STRINGS_TRUNCATED) != 0, true);
+	json_kv_bool(fp, d, "path_unavailable",
+	    (msg->em_flags & OES_MSG_FLAG_PATH_UNAVAILABLE) != 0, true);
 
 	/* Wall-clock timestamp for log correlation */
 	{

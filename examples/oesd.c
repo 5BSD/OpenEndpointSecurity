@@ -22,7 +22,7 @@
 
 #include <err.h>
 #include <errno.h>
-#include <fcntl.h>
+#include <stdbool.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,7 +34,7 @@
 
 #define DEFAULT_SOCKET_PATH	"/var/run/oesd.sock"
 
-static int debug_mode = 0;
+static bool debug_mode;
 static volatile sig_atomic_t running = 1;
 
 static void
@@ -176,7 +176,7 @@ main(int argc, char *argv[])
 	while ((ch = getopt(argc, argv, "ds:")) != -1) {
 		switch (ch) {
 		case 'd':
-			debug_mode = 1;
+			debug_mode = true;
 			break;
 		case 's':
 			socket_path = optarg;

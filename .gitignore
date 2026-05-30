@@ -30,6 +30,7 @@ test_oes
 tests/test_*
 !tests/test_*.c
 !tests/test_*.sh
+!tests/test_common.h
 
 # Example binaries
 examples/oesd

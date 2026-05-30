@@ -5,58 +5,16 @@
  * and OES_IOC_UNMUTE_ALL_TARGET_PATHS.
  */
 #include <sys/ioctl.h>
-#include <sys/poll.h>
 #include <sys/wait.h>
 
-#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <unistd.h>
 
 #include <security/oes/oes.h>
 #include "test_common.h"
-
-static int
-wait_for_event(int fd, pid_t pid, oes_event_type_t event, int timeout_ms,
-    oes_message_t *out)
-{
-	test_msg_buf _buf;
-	oes_message_t *msg = &_buf.msg;
-	struct timespec start;
-
-	clock_gettime(CLOCK_MONOTONIC, &start);
-
-	for (;;) {
-		struct timespec now;
-		long elapsed_ms;
-		int remaining;
-
-		clock_gettime(CLOCK_MONOTONIC, &now);
-		elapsed_ms = (now.tv_sec - start.tv_sec) * 1000L +
-		    (now.tv_nsec - start.tv_nsec) / 1000000L;
-		if (elapsed_ms >= timeout_ms)
-			break;
-
-		remaining = timeout_ms - (int)elapsed_ms;
-		if (remaining > 100)
-			remaining = 100;
-
-		if (test_wait_event(fd, msg, remaining) != 0)
-			continue;
-		if (msg->em_process.ep_pid != pid)
-			continue;
-		if (msg->em_event != event)
-			continue;
-		if (out != NULL)
-			*out = *msg;
-		return (0);
-	}
-
-	return (ETIMEDOUT);
-}
 
 int
 main(void)
@@ -113,7 +71,8 @@ main(void)
 	}
 
 	/* Verify self is muted */
-	ret = wait_for_event(fd, getpid(), OES_EVENT_NOTIFY_OPEN, 500, NULL);
+	ret = test_wait_event_pid(fd, getpid(), OES_EVENT_NOTIFY_OPEN, 500,
+	    NULL);
 	(void)open("/etc/passwd", O_RDONLY);
 	if (ret == 0) {
 		fprintf(stderr, "FAIL: self not muted\n");
@@ -148,7 +107,8 @@ main(void)
 
 	/* Verify events now delivered */
 	(void)open("/etc/hosts", O_RDONLY);
-	ret = wait_for_event(fd, getpid(), OES_EVENT_NOTIFY_OPEN, 1000, NULL);
+	ret = test_wait_event_pid(fd, getpid(), OES_EVENT_NOTIFY_OPEN, 1000,
+	    NULL);
 	if (ret != 0) {
 		fprintf(stderr, "FAIL: OPEN not delivered after unmute-all\n");
 		close(fd);
