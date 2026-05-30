@@ -561,6 +561,8 @@ oes_pending_alloc(oes_event_type_t event, struct proc *p)
 			ep->ep_msg.em_process.ep_token.ept_id = p->p_pid;
 			strlcpy(ep->ep_msg.em_process.ep_comm, p->p_comm,
 			    sizeof(ep->ep_msg.em_process.ep_comm));
+			oes_process_mark_path_unavailable(&ep->ep_msg,
+			    &ep->ep_msg.em_process);
 		}
 	}
 	ep->ep_msg.em_size = OES_MSG_ALIGNED(st.st_off);
