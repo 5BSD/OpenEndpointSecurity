@@ -393,9 +393,11 @@ test_cache_filling(void)
 		entry.ece_key.eck_event = OES_EVENT_AUTH_EXEC;
 		entry.ece_key.eck_flags = OES_CACHE_KEY_PROCESS | OES_CACHE_KEY_FILE;
 		entry.ece_key.eck_process.ept_id = 1000 + i;
-		entry.ece_key.eck_file.eft_id = i;
+		entry.ece_key.eck_process.ept_genid = 1;
+		entry.ece_key.eck_file.eft_id = i + 1;
 		entry.ece_key.eck_file.eft_dev = 0;
 		entry.ece_result = OES_AUTH_ALLOW;
+		entry.ece_ttl_ms = 1000;
 
 		if (ioctl(fd, OES_IOC_CACHE_ADD, &entry) == 0) {
 			added++;

@@ -40,6 +40,25 @@ oes_cache_file_valid(const oes_file_token_t *tok)
 	return (tok->eft_id != 0 || tok->eft_dev != 0);
 }
 
+static __inline bool
+oes_cache_proc_valid(const oes_proc_token_t *tok)
+{
+	return (tok->ept_id != 0 && tok->ept_genid != 0);
+}
+
+static bool
+oes_cache_event_requires_target(oes_event_type_t event)
+{
+	switch (event) {
+	case OES_EVENT_AUTH_UNLINK:
+	case OES_EVENT_AUTH_RENAME:
+	case OES_EVENT_AUTH_LINK:
+		return (true);
+	default:
+		return (false);
+	}
+}
+
 static uint32_t
 oes_cache_bucket(oes_event_type_t event)
 {
@@ -65,6 +84,8 @@ oes_cache_key_equal(const oes_cache_key_t *a, const oes_cache_key_t *b)
 		return (false);
 	if (a->eck_flags != b->eck_flags)
 		return (false);
+	if (a->eck_op_flags != b->eck_op_flags)
+		return (false);
 	if ((a->eck_flags & OES_CACHE_KEY_PROCESS) &&
 	    !oes_cache_proc_equal(&a->eck_process, &b->eck_process))
 		return (false);
@@ -73,27 +94,6 @@ oes_cache_key_equal(const oes_cache_key_t *a, const oes_cache_key_t *b)
 		return (false);
 	if ((a->eck_flags & OES_CACHE_KEY_TARGET) &&
 	    !oes_cache_file_equal(&a->eck_target, &b->eck_target))
-		return (false);
-	return (true);
-}
-
-static bool
-oes_cache_key_match_lookup(const oes_cache_key_t *entry,
-    const oes_cache_key_t *lookup)
-{
-	if (entry->eck_event != lookup->eck_event)
-		return (false);
-	/* Require exact flag match to prevent decision bleed across operations */
-	if (entry->eck_flags != lookup->eck_flags)
-		return (false);
-	if ((entry->eck_flags & OES_CACHE_KEY_PROCESS) &&
-	    !oes_cache_proc_equal(&entry->eck_process, &lookup->eck_process))
-		return (false);
-	if ((entry->eck_flags & OES_CACHE_KEY_FILE) &&
-	    !oes_cache_file_equal(&entry->eck_file, &lookup->eck_file))
-		return (false);
-	if ((entry->eck_flags & OES_CACHE_KEY_TARGET) &&
-	    !oes_cache_file_equal(&entry->eck_target, &lookup->eck_target))
 		return (false);
 	return (true);
 }
@@ -144,6 +144,8 @@ oes_cache_key_from_pending(const struct oes_pending *ep,
 	key->eck_event = msg->em_event;
 	key->eck_flags = OES_CACHE_KEY_PROCESS;
 	key->eck_process = msg->em_process.ep_token;
+	if (!oes_cache_proc_valid(&key->eck_process))
+		return (false);
 
 	switch (msg->em_event) {
 	case OES_EVENT_AUTH_EXEC:
@@ -151,9 +153,11 @@ oes_cache_key_from_pending(const struct oes_pending *ep,
 		break;
 	case OES_EVENT_AUTH_OPEN:
 		file = msg->em_event_data.open.file.ef_token;
+		key->eck_op_flags = (uint32_t)msg->em_event_data.open.flags;
 		break;
 	case OES_EVENT_AUTH_ACCESS:
 		file = msg->em_event_data.access.file.ef_token;
+		key->eck_op_flags = (uint32_t)msg->em_event_data.access.accmode;
 		break;
 	case OES_EVENT_AUTH_READ:
 	case OES_EVENT_AUTH_WRITE:
@@ -200,9 +204,11 @@ oes_cache_key_from_pending(const struct oes_pending *ep,
 		break;
 	case OES_EVENT_AUTH_MMAP:
 		file = msg->em_event_data.mmap.file.ef_token;
+		key->eck_op_flags = (uint32_t)msg->em_event_data.mmap.prot;
 		break;
 	case OES_EVENT_AUTH_MPROTECT:
 		file = msg->em_event_data.mprotect.file.ef_token;
+		key->eck_op_flags = (uint32_t)msg->em_event_data.mprotect.prot;
 		break;
 	case OES_EVENT_AUTH_CHDIR:
 		file = msg->em_event_data.chdir.dir.ef_token;
@@ -267,6 +273,11 @@ oes_cache_key_from_pending(const struct oes_pending *ep,
 		key->eck_flags |= OES_CACHE_KEY_TARGET;
 		key->eck_target = target;
 	}
+	if ((key->eck_flags & OES_CACHE_KEY_FILE) == 0)
+		return (false);
+	if (oes_cache_event_requires_target(msg->em_event) &&
+	    (key->eck_flags & OES_CACHE_KEY_TARGET) == 0)
+		return (false);
 
 	return (true);
 }
@@ -342,10 +353,21 @@ oes_client_cache_add(struct oes_client *ec, const oes_cache_entry_t *entry)
 	if (!oes_event_is_valid(entry->ece_key.eck_event) ||
 	    !OES_EVENT_IS_AUTH(entry->ece_key.eck_event))
 		return (EINVAL);
+	if (entry->ece_key.eck_pad != 0)
+		return (EINVAL);
 	/* AUTH_PTRACE targets processes, not files - can't cache */
 	if (entry->ece_key.eck_event == OES_EVENT_AUTH_PTRACE)
 		return (EINVAL);
 	if (!oes_cache_flags_valid(entry->ece_key.eck_flags))
+		return (EINVAL);
+	if (!oes_cache_proc_valid(&entry->ece_key.eck_process))
+		return (EINVAL);
+	if ((entry->ece_key.eck_flags & OES_CACHE_KEY_FILE) == 0 ||
+	    !oes_cache_file_valid(&entry->ece_key.eck_file))
+		return (EINVAL);
+	if (oes_cache_event_requires_target(entry->ece_key.eck_event) &&
+	    ((entry->ece_key.eck_flags & OES_CACHE_KEY_TARGET) == 0 ||
+	    !oes_cache_file_valid(&entry->ece_key.eck_target)))
 		return (EINVAL);
 	if (entry->ece_result != OES_AUTH_ALLOW &&
 	    entry->ece_result != OES_AUTH_DENY)
@@ -408,6 +430,8 @@ oes_client_cache_remove(struct oes_client *ec, const oes_cache_key_t *key)
 	if (key->eck_event != OES_CACHE_EVENT_ANY &&
 	    (!oes_event_is_valid(key->eck_event) ||
 	     !OES_EVENT_IS_AUTH(key->eck_event)))
+		return (EINVAL);
+	if (key->eck_pad != 0)
 		return (EINVAL);
 	flags = key->eck_flags;
 	if (!oes_cache_flags_valid(flags))
@@ -472,7 +496,7 @@ oes_client_cache_lookup(struct oes_client *ec, const struct oes_pending *ep,
 			oes_cache_remove_entry_locked(ec, cur, true, false);
 			continue;
 		}
-		if (!oes_cache_key_match_lookup(&cur->ece_key, &lookup))
+		if (!oes_cache_key_equal(&cur->ece_key, &lookup))
 			continue;
 		TAILQ_REMOVE(&ec->ec_cache_lru, cur, ece_lru);
 		TAILQ_INSERT_HEAD(&ec->ec_cache_lru, cur, ece_lru);
