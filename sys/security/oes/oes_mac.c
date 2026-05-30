@@ -1997,7 +1997,8 @@ oes_generate_vnode_event(oes_event_type_t event,
 	if (ep == NULL) {
 		atomic_add_64(&oes_softc.sc_alloc_failures, 1);
 		if (OES_EVENT_IS_AUTH(event))
-			return (oes_default_action == OES_AUTH_DENY ? EACCES : 0);
+			return (oes_auth_fail_closed ||
+			    oes_default_action == OES_AUTH_DENY ? EACCES : 0);
 		return (0);
 	}
 
@@ -2362,7 +2363,8 @@ oes_generate_exec_event(struct ucred *cred, struct vnode *vp,
 	if (ep == NULL) {
 		atomic_add_64(&oes_softc.sc_alloc_failures, 1);
 		if (OES_EVENT_IS_AUTH(event))
-			return (oes_default_action == OES_AUTH_DENY ? EACCES : 0);
+			return (oes_auth_fail_closed ||
+			    oes_default_action == OES_AUTH_DENY ? EACCES : 0);
 		return (0);
 	}
 

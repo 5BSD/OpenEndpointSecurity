@@ -509,6 +509,8 @@ SYSCTL_DECL(_security_oes);
 extern int oes_debug;
 extern int oes_default_timeout;
 extern int oes_default_action;
+extern int oes_auth_fail_closed;
+extern int oes_require_auth_clients;
 extern int oes_default_queue_size;
 extern int oes_max_clients;
 extern int oes_cache_max_entries;

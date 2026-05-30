@@ -140,13 +140,16 @@ oes_client_free(struct oes_client *ec)
 		if (ep->ep_flags & EP_FLAG_AUTH) {
 			mtx_lock(&ep->ep_mtx);
 			if (!ep->ep_responded) {
+				oes_auth_result_t close_action;
+
+				close_action = (oes_auth_fail_closed ||
+				    oes_require_auth_clients) ? OES_AUTH_DENY :
+				    (oes_auth_result_t)ec->ec_timeout_action;
 				ep->ep_responded = true;
-				ep->ep_result = (oes_auth_result_t)
-				    ec->ec_timeout_action;
+				ep->ep_result = close_action;
 				if (ep->ep_group != NULL)
 					oes_auth_group_mark_response(
-					    ep->ep_group,
-					    (oes_auth_result_t)ep->ep_result);
+					    ep->ep_group, close_action);
 				cv_broadcast(&ep->ep_cv);
 			}
 			mtx_unlock(&ep->ep_mtx);
@@ -161,13 +164,16 @@ oes_client_free(struct oes_client *ec)
 		if (ep->ep_flags & EP_FLAG_AUTH) {
 			mtx_lock(&ep->ep_mtx);
 			if (!ep->ep_responded) {
+				oes_auth_result_t close_action;
+
+				close_action = (oes_auth_fail_closed ||
+				    oes_require_auth_clients) ? OES_AUTH_DENY :
+				    (oes_auth_result_t)ec->ec_timeout_action;
 				ep->ep_responded = true;
-				ep->ep_result = (oes_auth_result_t)
-				    ec->ec_timeout_action;
+				ep->ep_result = close_action;
 				if (ep->ep_group != NULL)
 					oes_auth_group_mark_response(
-					    ep->ep_group,
-					    (oes_auth_result_t)ep->ep_result);
+					    ep->ep_group, close_action);
 				cv_broadcast(&ep->ep_cv);
 			}
 			mtx_unlock(&ep->ep_mtx);

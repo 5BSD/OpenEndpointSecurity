@@ -391,6 +391,51 @@ test_cache_invalid_data(void)
 }
 
 /*
+ * Test AUTH response reserved fields.
+ */
+static int
+test_response_reserved_fields(void)
+{
+	int fd;
+	oes_response_t resp;
+	oes_response_flags_t fresp;
+
+	printf("  Testing response reserved fields...\n");
+
+	fd = open("/dev/oes", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+	if (fd < 0) {
+		perror("open /dev/oes");
+		return (1);
+	}
+
+	memset(&resp, 0, sizeof(resp));
+	resp.er_id = 1;
+	resp.er_result = OES_AUTH_ALLOW;
+	resp.er_flags = 1;
+	if (write(fd, &resp, sizeof(resp)) != -1 || errno != EINVAL) {
+		fprintf(stderr,
+		    "FAIL: nonzero response reserved flags accepted\n");
+		close(fd);
+		return (1);
+	}
+
+	memset(&fresp, 0, sizeof(fresp));
+	fresp.erf_id = 1;
+	fresp.erf_result = OES_AUTH_ALLOW;
+	fresp.erf_reserved = 1;
+	if (write(fd, &fresp, sizeof(fresp)) != -1 || errno != EINVAL) {
+		fprintf(stderr,
+		    "FAIL: nonzero flags response reserved field accepted\n");
+		close(fd);
+		return (1);
+	}
+
+	close(fd);
+	printf("    PASS: response reserved fields rejected\n");
+	return (0);
+}
+
+/*
  * Test per-event muting with invalid event bitmap.
  */
 static int
@@ -649,6 +694,7 @@ main(void)
 	failed += test_mute_path_no_terminator();
 	failed += test_mute_invalid_token();
 	failed += test_cache_invalid_data();
+	failed += test_response_reserved_fields();
 	failed += test_invalid_event_bitmap();
 	failed += test_get_muted_bad_buffer();
 	failed += test_ioctl_wrong_fd();

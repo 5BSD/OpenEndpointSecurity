@@ -57,6 +57,16 @@ int oes_default_action = OES_AUTH_ALLOW;
 SYSCTL_INT(_security_oes, OID_AUTO, default_action, CTLFLAG_RW,
     &oes_default_action, 0, "Default AUTH timeout action (0=allow, 1=deny)");
 
+int oes_auth_fail_closed = 0;
+SYSCTL_INT(_security_oes, OID_AUTO, auth_fail_closed, CTLFLAG_RW,
+    &oes_auth_fail_closed, 0,
+    "Deny AUTH operations when OES cannot allocate or deliver required state");
+
+int oes_require_auth_clients = 0;
+SYSCTL_INT(_security_oes, OID_AUTO, require_auth_clients, CTLFLAG_RW,
+    &oes_require_auth_clients, 0,
+    "Deny AUTH operations when no AUTH client is consulted");
+
 int oes_default_queue_size = OES_DEFAULT_QUEUE_SIZE;
 SYSCTL_INT(_security_oes, OID_AUTO, default_queue_size, CTLFLAG_RW,
     &oes_default_queue_size, 0, "Default event queue size per client");
@@ -501,6 +511,8 @@ oes_write(struct cdev *dev, struct uio *uio, int ioflag)
 		if (resp.er_result != OES_AUTH_ALLOW &&
 		    resp.er_result != OES_AUTH_DENY)
 			return (EINVAL);
+		if (resp.er_flags != 0)
+			return (EINVAL);
 
 		error = oes_event_respond(ec, resp.er_id, resp.er_result);
 
@@ -515,6 +527,8 @@ oes_write(struct cdev *dev, struct uio *uio, int ioflag)
 		/* Validate response */
 		if (resp.erf_result != OES_AUTH_ALLOW &&
 		    resp.erf_result != OES_AUTH_DENY)
+			return (EINVAL);
+		if (resp.erf_reserved != 0)
 			return (EINVAL);
 
 		error = oes_event_respond_flags(ec, resp.erf_id,
